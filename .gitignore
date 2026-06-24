@@ -1,0 +1,27 @@
+# Clean compiler build
+clean
+*.o
+*.s
+
+# Temp files
+/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+/tmp/clean_*
+
+# Binaries
+calc_gui
+cleancc
+clean.bin
+
+skills-main/

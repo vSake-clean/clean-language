@@ -1,0 +1,293 @@
+#include "lexer.h"
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+void lexer_init(Lexer *l, const char *source) {
+    l->source = source;
+    l->pos = 0;
+    l->line = 1;
+    l->col = 1;
+    l->indent_sp = 0;
+    l->indent_stack[0] = 0;
+    l->pending_indent = 0;
+    l->has_peek = 0;
+}
+
+static Token token_new(Lexer *l, TokenType type) {
+    return (Token){ .type = type, .text = NULL, .int_val = 0, .line = l->line, .col = l->col, .len = 1 };
+}
+
+static int kw_match(const char *s, TokenType *t) {
+    static const char *kw[] = {
+        "fn","let","mut","var","if","elif","else","while","for","in",
+        "return","break","continue","match","struct","enum","trait","impl",
+        "use","pub","unsafe","extern","true","false","unless","effect", NULL
+    };
+    static TokenType kt[] = {
+        TOK_FN,TOK_LET,TOK_MUT,TOK_VAR,TOK_IF,TOK_ELIF,TOK_ELSE,TOK_WHILE,TOK_FOR,TOK_IN,
+        TOK_RETURN,TOK_BREAK,TOK_CONTINUE,TOK_MATCH,TOK_STRUCT,TOK_ENUM,TOK_TRAIT,TOK_IMPL,
+        TOK_USE,TOK_PUB,TOK_UNSAFE,TOK_EXTERN,TOK_TRUE,TOK_FALSE,TOK_UNLESS,TOK_EFFECT
+    };
+    for (int i = 0; kw[i]; i++)
+        if (strcmp(s, kw[i]) == 0) { *t = kt[i]; return 1; }
+    return 0;
+}
+
+/* scan ahead to next non-empty content line, compute its indent, and set pending_indent.
+   Returns 1 if content line found, 0 if EOF.
+   Called after '\n' has been consumed (l->pos at start of next line). */
+static int scan_next_line(Lexer *l) {
+    const char *s = l->source;
+    l->pending_indent = 0;
+
+    int indent = 0;
+    size_t start = 0;
+
+    /* skip blank lines and comments */
+    while (1) {
+        start = l->pos;
+
+        /* peek: if line is blank/comment, skip it; otherwise break to indent computation */
+        if (s[l->pos] == '\n' || s[l->pos] == '\0')
+            return 0;
+        if (s[l->pos] == '#') {
+            while (s[l->pos] && s[l->pos] != '\n') l->pos++;
+            if (s[l->pos] == '\n') { l->pos++; l->line++; l->col = 1; }
+            continue;
+        }
+        /* not blank: compute indent */
+        indent = 0;
+        start = l->pos;
+        while (s[l->pos] == ' ' || s[l->pos] == '\t') {
+            indent += (s[l->pos] == '\t') ? 4 : 1;
+            l->pos++;
+        }
+        /* if only whitespace to end of line, skip */
+        if (s[l->pos] == '\n' || s[l->pos] == '\0' || s[l->pos] == '#') {
+            if (s[l->pos] == '\n') { l->pos++; l->line++; l->col = 1; }
+            continue;
+        }
+        /* content line found */
+        l->pos = start;
+        l->col = indent + 1;
+        break;
+    }
+
+    /* compare with stack */
+    int cur = l->indent_stack[l->indent_sp];
+    if (indent > cur) {
+        l->indent_sp++;
+        l->indent_stack[l->indent_sp] = indent;
+        l->pending_indent = 1;  /* emit INDENT */
+    } else if (indent < cur) {
+        /* pop until we match or go past */
+        int count = 0;
+        while (l->indent_sp > 0 && indent < l->indent_stack[l->indent_sp]) {
+            l->indent_sp--;
+            count--;
+        }
+        l->pending_indent = count;  /* negative = DEDENTs */
+    }
+    return 1;
+}
+
+void lexer_free_token(Token *t) {
+    free(t->text);
+    t->text = NULL;
+}
+
+Token lexer_next(Lexer *l) {
+    if (l->has_peek) {
+        l->has_peek = 0;
+        return l->peek;
+    }
+
+    /* emit pending indent/dedent */
+    if (l->pending_indent != 0) {
+        int val = l->pending_indent;
+        if (val > 0) {
+            l->pending_indent--;
+            return token_new(l, TOK_INDENT);
+        } else {
+            l->pending_indent++;
+            return token_new(l, TOK_DEDENT);
+        }
+    }
+
+    const char *s = l->source;
+
+    while (1) {
+        /* skip whitespace (non-newline) */
+        if (s[l->pos] == ' ' || s[l->pos] == '\t') {
+            l->pos++; l->col++;
+            continue;
+        }
+
+        /* newline: end of current line */
+        if (s[l->pos] == '\n') {
+            l->pos++; l->line++; l->col = 1;
+            if (scan_next_line(l)) {
+                /* if there are pending indents, emit NEWLINE now, indents follow */
+                Token t = token_new(l, TOK_NEWLINE);
+                return t;
+            }
+            continue;
+        }
+
+        /* comment */
+        if (s[l->pos] == '#') {
+            while (s[l->pos] && s[l->pos] != '\n') l->pos++;
+            continue;
+        }
+
+        /* EOF */
+        if (s[l->pos] == '\0') {
+            /* emit trailing dedents */
+            while (l->indent_sp > 0) {
+                l->indent_sp--;
+                return token_new(l, TOK_DEDENT);
+            }
+            return token_new(l, TOK_EOF);
+        }
+
+        /* regular token */
+        break;
+    }
+
+    /* identifiers */
+    if (isalpha((unsigned char)s[l->pos]) || s[l->pos] == '_') {
+        size_t start = l->pos;
+        while (isalnum((unsigned char)s[l->pos]) || s[l->pos] == '_') l->pos++;
+        size_t toklen = l->pos - start;
+        char *word = strndup(s + start, toklen);
+        Token t = token_new(l, TOK_IDENT);
+        t.text = word;
+        t.len = toklen;
+        l->col += toklen;
+        TokenType kt;
+        if (kw_match(word, &kt)) { free(t.text); t.text = NULL; t.type = kt; }
+        return t;
+    }
+
+    /* integers */
+    if (isdigit((unsigned char)s[l->pos])) {
+        size_t start = l->pos;
+        long long val = 0;
+        while (isdigit((unsigned char)s[l->pos])) {
+            val = val * 10 + (s[l->pos] - '0');
+            l->pos++; l->col++;
+        }
+        Token t = token_new(l, TOK_INT);
+        t.int_val = val;
+        t.len = l->pos - start;
+        return t;
+    }
+
+    /* strings */
+    if (s[l->pos] == '"') {
+        size_t start = l->pos;
+        l->pos++; l->col++;
+        size_t cap = 4096;
+        char *buf = malloc(cap);
+        size_t cnt = 0;
+        while (s[l->pos] && s[l->pos] != '"') {
+            if (cnt >= cap - 1) {
+                cap *= 2;
+                buf = realloc(buf, cap);
+            }
+            if (s[l->pos] == '\\') {
+                l->pos++; l->col++;
+                char esc = s[l->pos];
+                if (esc == 'n') { buf[cnt++] = '\n'; }
+                else if (esc == 'r') { buf[cnt++] = '\r'; }
+                else if (esc == 't') { buf[cnt++] = '\t'; }
+                else if (esc == '\\') { buf[cnt++] = '\\'; }
+                else if (esc == '"') { buf[cnt++] = '"'; }
+                else { buf[cnt++] = esc; }
+                l->pos++; l->col++;
+            } else {
+                buf[cnt++] = s[l->pos];
+                l->pos++; l->col++;
+            }
+        }
+        buf[cnt] = '\0';
+        Token t = token_new(l, TOK_STR);
+        t.text = buf;
+        t.len = (l->pos - start) + 1;
+        if (s[l->pos] == '"') { l->pos++; l->col++; }
+        return t;
+    }
+
+    /* operators */
+    while (1) {
+        char c = s[l->pos];
+        Token t = token_new(l, TOK_EOF);
+
+        switch (c) {
+        case '=':
+            if (s[l->pos+1] == '=') { t.type = TOK_EQEQ; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_EQ; l->pos++; l->col++; }
+            break;
+        case '!':
+            if (s[l->pos+1] == '=') { t.type = TOK_NE; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_NOT; l->pos++; l->col++; }
+            break;
+        case '<':
+            if (s[l->pos+1] == '=') { t.type = TOK_LE; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_LT; l->pos++; l->col++; }
+            break;
+        case '>':
+            if (s[l->pos+1] == '=') { t.type = TOK_GE; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_GT; l->pos++; l->col++; }
+            break;
+        case '-':
+            if (s[l->pos+1] == '=') { t.type = TOK_MINUSEQ; t.len = 2; l->pos+=2; l->col+=2; }
+            else if (s[l->pos+1] == '>') { t.type = TOK_ARROW; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_MINUS; l->pos++; l->col++; }
+            break;
+        case '+':
+            if (s[l->pos+1] == '=') { t.type = TOK_PLUSEQ; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_PLUS; l->pos++; l->col++; }
+            break;
+        case '*':
+            if (s[l->pos+1] == '=') { t.type = TOK_STAREQ; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_STAR; l->pos++; l->col++; }
+            break;
+        case '/':
+            if (s[l->pos+1] == '=') { t.type = TOK_SLASHEQ; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_SLASH; l->pos++; l->col++; }
+            break;
+        case '%': t.type = TOK_PERCENT; l->pos++; l->col++; break;
+        case '(': t.type = TOK_LPAREN; l->pos++; l->col++; break;
+        case ')': t.type = TOK_RPAREN; l->pos++; l->col++; break;
+        case '[': t.type = TOK_LBRACK; l->pos++; l->col++; break;
+        case ']': t.type = TOK_RBRACK; l->pos++; l->col++; break;
+        case '.':
+            if (s[l->pos+1] == '.') { t.type = TOK_DOTDOT; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_DOT; l->pos++; l->col++; }
+            break;
+        case ',': t.type = TOK_COMMA; l->pos++; l->col++; break;
+        case ':': t.type = TOK_COLON; l->pos++; l->col++; break;
+        case '&':
+            if (s[l->pos+1] == '&') { t.type = TOK_AND; t.len = 2; l->pos+=2; l->col+=2; }
+            else { l->pos++; l->col++; continue; }
+            break;
+        case '|':
+            if (s[l->pos+1] == '|') { t.type = TOK_OR; t.len = 2; l->pos+=2; l->col+=2; }
+            else if (s[l->pos+1] == '>') { t.type = TOK_PIPE; t.len = 2; l->pos+=2; l->col+=2; }
+            else { l->pos++; l->col++; continue; }
+            break;
+        default: l->pos++; l->col++; continue;
+        }
+        return t;
+    }
+}
+
+Token lexer_peek(Lexer *l) {
+    if (!l->has_peek) {
+        l->peek = lexer_next(l);
+        l->has_peek = 1;
+    }
+    return l->peek;
+}
