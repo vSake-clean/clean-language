@@ -340,7 +340,7 @@ clean/
 - Purity checking (effect tracking)
 - Wbudowane funkcje I/O i terminalowe
 - GUI przez X11 (clgui_*)
-- Duże stringi (12 MB Bad Apple animation)
+- Duże stringi (dynamic buffers, chunked strtab)  
 - String escape sequences
 - Dynamiczne bufory w lexerze
 

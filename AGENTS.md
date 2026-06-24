@@ -106,12 +106,10 @@ Documentation hub: **README.md** (GitHub overview), **docs/TUTORIAL.md** (in-dep
 2. **Frame pointer (rbx)**: Struct literal codegen uses `rbx` to hold the allocated pointer between brk calls and field stores. Must save/restore if rbx is used as a general-purpose register in the future.
 3. **struct_count uninitialized**: `Codegen cg` in `codegen_compile` is stack-allocated; `cg.struct_count` was not initialized to 0, causing out-of-bounds access in `collect_structs`/`find_cg_struct`. Fixed by adding `cg.struct_count = 0` alongside `cg.str_cnt = 0`.
 
-## Session: Bad Apple Animation (2024-06-22, part 3)
+## Session: Large Strings & Builtins (2024-06-22, part 3)
 1. **`get_frame_ptr` builtin**: Added `emit_get_frame_ptr` assembly function — `ptr = base + idx * size` (rdi=base, rsi=idx, rdx=size, rax=ptr). Emitted as a global symbol, callable via `extern fn get_frame_ptr(data, frame, fsize)`.
-2. **Dynamic string buffer**: Lexer string-reading loop replaced fixed 4096-byte `char buf[4096]` with `malloc`/`realloc` growth, supporting arbitrarily large string literals (tested to 12.2 MB).
+2. **Dynamic string buffer**: Lexer string-reading loop replaced fixed 4096-byte `char buf[4096]` with `malloc`/`realloc` growth, supporting arbitrarily large string literals.
 3. **Chunked `emit_strtab`**: Strings >4096 bytes emitted as multiple `.ascii` chunks (each ≤4096 bytes) + trailing `.byte 0`, avoiding GAS line length limits.
-4. **Bad Apple animation**: Generated 6572 frames at 80×24 from `trung-kieen/bad-apple-ascii` video. Embedded as single string literal in `examples/bad_apple.cl` (12.2 MB source → 12.8 MB ELF binary). Built via `tools/badapple.py`.
-5. **`extern fn` syntax**: Parser expects `fn` after `extern`: `extern fn name(params)` (not `extern name`). Updated bad_apple.cl accordingly.
 
 ## Documentation
 - **README.md** — quickstart, comparison table, CLI reference, examples overview

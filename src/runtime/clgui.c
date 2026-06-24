@@ -9,7 +9,23 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "apple_model.h"
+/* Built-in cube model (fallback when no .obj loaded) */
+#define BUILTIN_NUM_VERTICES 8
+#define BUILTIN_NUM_TRIANGLES 12
+static const float builtin_vtx[BUILTIN_NUM_VERTICES][3] = {
+    {-1,-1,-1},{ 1,-1,-1},{ 1, 1,-1},{-1, 1,-1},
+    {-1,-1, 1},{ 1,-1, 1},{ 1, 1, 1},{-1, 1, 1}
+};
+static const int builtin_tri[BUILTIN_NUM_TRIANGLES][3] = {
+    {0,1,2},{0,2,3},{1,5,6},{1,6,2},
+    {5,4,7},{5,7,6},{4,0,3},{4,3,7},
+    {3,2,6},{3,6,7},{4,5,1},{4,1,0}
+};
+static const float builtin_norm[BUILTIN_NUM_TRIANGLES][3] = {
+    {0,0,-1},{0,0,-1},{1,0,0},{1,0,0},
+    {0,0,1},{0,0,1},{-1,0,0},{-1,0,0},
+    {0,1,0},{0,1,0},{0,-1,0},{0,-1,0}
+};
 
 #define MAX_WINS 16
 
@@ -447,21 +463,21 @@ void renderer_free(void); /* forward decl */
 static int setup_model(void) {
     if (mdl_nv == 0 || mdl_nt == 0) return -1;
 
-    /* Compute centroid and scale from vertices (or apple_vtx if embedded) */
+    /* Compute centroid and scale from vertices (or builtin_vtx if embedded) */
     float cx = 0, cy = 0, cz = 0;
-    int use_apple = (mdl_vert == NULL);
+    int use_builtin = (mdl_vert == NULL);
     for (int i = 0; i < mdl_nv; i++) {
-        float x = use_apple ? apple_vtx[i][0] : mdl_vert[i*3+0];
-        float y = use_apple ? apple_vtx[i][1] : mdl_vert[i*3+1];
-        float z = use_apple ? apple_vtx[i][2] : mdl_vert[i*3+2];
+        float x = use_builtin ? builtin_vtx[i][0] : mdl_vert[i*3+0];
+        float y = use_builtin ? builtin_vtx[i][1] : mdl_vert[i*3+1];
+        float z = use_builtin ? builtin_vtx[i][2] : mdl_vert[i*3+2];
         cx += x; cy += y; cz += z;
     }
     cx /= mdl_nv; cy /= mdl_nv; cz /= mdl_nv;
     float max_r = 0;
     for (int i = 0; i < mdl_nv; i++) {
-        float x = use_apple ? apple_vtx[i][0] : mdl_vert[i*3+0];
-        float y = use_apple ? apple_vtx[i][1] : mdl_vert[i*3+1];
-        float z = use_apple ? apple_vtx[i][2] : mdl_vert[i*3+2];
+        float x = use_builtin ? builtin_vtx[i][0] : mdl_vert[i*3+0];
+        float y = use_builtin ? builtin_vtx[i][1] : mdl_vert[i*3+1];
+        float z = use_builtin ? builtin_vtx[i][2] : mdl_vert[i*3+2];
         float dx = x - cx, dy = y - cy, dz = z - cz;
         float r = dx*dx + dy*dy + dz*dz;
         if (r > max_r) max_r = r;
@@ -489,9 +505,9 @@ static int setup_model(void) {
     }
 
     for (int i = 0; i < eng_nv; i++) {
-        float x = use_apple ? apple_vtx[i][0] : mdl_vert[i*3+0];
-        float y = use_apple ? apple_vtx[i][1] : mdl_vert[i*3+1];
-        float z = use_apple ? apple_vtx[i][2] : mdl_vert[i*3+2];
+        float x = use_builtin ? builtin_vtx[i][0] : mdl_vert[i*3+0];
+        float y = use_builtin ? builtin_vtx[i][1] : mdl_vert[i*3+1];
+        float z = use_builtin ? builtin_vtx[i][2] : mdl_vert[i*3+2];
         eng_cv[i*3+0] = (x - cx) / scale;
         eng_cv[i*3+1] = (y - cy) / scale;
         eng_cv[i*3+2] = (z - cz) / scale;
@@ -521,8 +537,8 @@ int64_t renderer_init(int64_t win_idx, int64_t w, int64_t h) {
     /* Use embedded Apple model by default */
     free_model_data();
     mdl_vert = NULL;
-    mdl_nv = APPLE_NUM_VERTICES;
-    mdl_nt = APPLE_NUM_TRIANGLES;
+    mdl_nv = BUILTIN_NUM_VERTICES;
+    mdl_nt = BUILTIN_NUM_TRIANGLES;
     mdl_tri = NULL;
     mdl_norm = NULL;
     mdl_color = NULL;
@@ -583,7 +599,7 @@ static void rotate(double angle_y) {
         if (mdl_norm) {
             nx = mdl_norm[i*3+0]; ny = mdl_norm[i*3+1]; nz = mdl_norm[i*3+2];
         } else {
-            nx = apple_norm[i][0]; ny = apple_norm[i][1]; nz = apple_norm[i][2];
+            nx = builtin_norm[i][0]; ny = builtin_norm[i][1]; nz = builtin_norm[i][2];
         }
         eng_xn[i*3+0] = nx*c + nz*s;
         eng_xn[i*3+1] = ny;
@@ -609,7 +625,7 @@ static void sort_triangles(void) {
     for (int i = 0; i < eng_nt; i++) {
         const int *t;
         if (mdl_tri) t = mdl_tri[i];
-        else t = apple_tri[i];
+        else t = builtin_tri[i];
         eng_depth[i] = (eng_xv[t[0]*3+2] + eng_xv[t[1]*3+2] + eng_xv[t[2]*3+2]) * 0.333333f;
     }
     for (int i = 1; i < eng_nt; i++) {
@@ -635,7 +651,7 @@ static void draw_triangle(int ti) {
         t = mdl_tri[ti];
         col = &mdl_color[ti * 3];
     } else {
-        t = apple_tri[ti];
+        t = builtin_tri[ti];
         col = NULL;
     }
     /* Read projected coords and 1/camera-z for perspective-correct depth */
