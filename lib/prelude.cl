@@ -21,15 +21,3 @@ trait Clone
 
 trait Drop
     fn drop(self)
-
-trait Ord
-    fn cmp(self, other: Self) -> i32
-
-trait Display
-    fn fmt(self) -> str
-
-trait Clone
-    fn clone(self) -> Self
-
-trait Drop
-    fn drop(self)

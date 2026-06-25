@@ -15,7 +15,7 @@ Documentation hub: **README.md** (GitHub overview), **docs/TUTORIAL.md** (in-dep
 - Install: `make install` (copies to `~/.local/bin/clean`, symlinks `cl`, installs clgui.c)
 - Quick test after build: `cp clean.bin /tmp/clean && clean run test.cl`
 - After install, run `hash -r` or start a new shell (otherwise PATH cache points to old binary)
-- Tests: `clean run examples/hello.cl` or test files in `~/Dokumenty/1 - 1mil/Count-to-1-Billion/`
+- Tests: `clean run examples/features.cl` or test files in `~/Dokumenty/1 - 1mil/Count-to-1-Billion/`
 - GUI test: `clean run examples/calc.cl` (launches calculator, returns immediately)
 - Clean syntax uses indentation (no braces), `fn`, `let`, `var`, `while`, `for`, `if`/`elif`/`else`/`unless`, `return`, `|>` pipe, `use`, list comprehensions `[expr for var in start..end if cond]`, `effect` in function signatures, `inspect`, `assert`, `extern` (top-level only)
 
@@ -42,6 +42,7 @@ Documentation hub: **README.md** (GitHub overview), **docs/TUTORIAL.md** (in-dep
 13=|, 14=^, 15=&, 16=<<, 17=>>, 18=**
 ```
 Unary opcodes: 0=not, 1=neg
+Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT (ops 0-3 only)
 
 ## Built-in Functions
 - `print_int(i64)` — prints integer (non-GUI: assembly write syscall; GUI: C function in clgui.c)
@@ -117,6 +118,12 @@ Unary opcodes: 0=not, 1=neg
 1. **and/or/not keywords missing from lexer**: `and`, `or`, `not` were not in the keyword table (`lexer.c:22-31`). The lexer treated them as plain identifiers, so `x and y` was parsed as `x(y)` (call to `x` with arg `y` producing `NODE_CALL`) instead of `x AND y` (binary expression). This caused the ownership checker to incorrectly move `x` in `let z = x and y` (since `let x = func()` moves the callee). Added `"and","or","not"` mapped to `TOK_AND,TOK_OR,TOK_NOT`.
 2. **Deref prefix `*` missing from parser**: `*expr` (dereference) was not handled as a prefix operator in `parse_expr_prec`. TOK_STAR was only handled as binary multiplication. Added `case TOK_STAR:` to prefix section creating `NODE_DEREF` node.
 3. **Debug prints removed**: All `fprintf(stderr, "DEBUG: ...")` lines removed from `check.c` before final commit.
+4. **Float codegen: double→int truncation + -nostartfiles kills printf**: NODE_FLOAT cast `double` to `(long long)`, losing fractional part. `print_float` existed but used `printf` while binary was linked with `-nostartfiles` (no C runtime init → printf's stdout buffer uninitialized → silent no-op). Fixed by: (a) emitting ieee754 double bits into rax via `mov rax, 0xHEX`, (b) `print_float` reads rdi (1st arg) via `movq xmm0, rdi` then calls printf, (c) removed `-nostartfiles` and custom `_start`, letting libc init stdio properly.
+5. **Float literal greedily consumed `1.` in `1..5`**: Added `isdigit(next_char)` guard before float parsing in lexer. Also restructured float lexing to correctly return TOK_INT when `.` is not followed by digit/e/E.
+6. **Struct `Foo: bar` one-line fields silent drop**: Parser only checked for fields after NEWLINE+INDENT; `struct Foo: bar` parsed with 0 fields. Fixed by adding `else` branch in struct parsing for same-line identifiers.
+7. **Prelude loading missing**: `main.c` never read `lib/prelude.cl`. Added prelude loading: prepends prelude source before user source. Tries CWD then binary-relative paths.
+8. **Struct/enum name stealing from function calls**: `Foo(x)` always treated as struct/enum literal when `Foo` was a known struct/enum, even if user wanted function call. Fixed by requiring PascalCase (first char uppercase) for struct/enum literal detection.
+9. **Float SSE arithmetic**: Added SSE float ops (`addsd`/`subsd`/`mulsd`/`divsd`) when either operand of a binary op is NODE_FLOAT. Float results returned in rax via `movq rax, xmm0`.
 
 ## Documentation
 - **README.md** — quickstart, comparison table, CLI reference, examples overview
@@ -137,3 +144,7 @@ Unary opcodes: 0=not, 1=neg
 - Enum type parameters (`Option<T>`) parsed but monomorphization not implemented — payloads use fixed-size allocation
 - No channels, green threads, or async support yet
 - `@memoize`, `@lazy` annotations not yet implemented
+- No memory management: all allocations via `brk` (string clones, struct/enum literals) are never freed
+- `calc_expr` builtin has ~256 lines of hand-written assembly (maintainability issue)
+- No `\n` after `print_str` output (no newline appended)
+- `clean run` exit code is ignored (always returns 0 to shell)

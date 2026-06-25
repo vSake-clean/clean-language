@@ -12,6 +12,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <limits.h>
+#include <stdint.h>
 
 #define MAX_VARS 256
 #define MAX_STRS 1024
@@ -171,12 +172,11 @@ static void emit_print_int(Codegen *c) {
 
 static void emit_print_float(Codegen *c) {
     int L = new_label(c);
-    emit(c, "\n# print_float(xmm0) -> void (uses libc printf via call)\n");
+    emit(c, "\n# print_float(rdi) -> void (reads ieee754 bits from rdi, uses libc printf)\n");
     emit(c, ".globl print_float\n.type print_float, @function\nprint_float:\n");
     emit(c, "  push rbp\n  mov rbp, rsp\n  sub rsp, 16\n");
-    emit(c, "  movsd qword ptr [rbp-8], xmm0\n");
+    emit(c, "  movq xmm0, rdi\n");
     emit(c, "  lea rdi, [rip + .L_float_fmt_%d]\n", L);
-    emit(c, "  movsd xmm0, qword ptr [rbp-8]\n");
     emit(c, "  mov rax, 1\n  call printf\n");
     emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
     emit(c, ".L_float_fmt_%d: .asciz \"%%.6f\\n\"\n", L);
@@ -572,7 +572,12 @@ static void gen_expr(Codegen *c, Node *n) {
     if (!n) { emit(c, "  xor rax, rax\n"); return; }
     switch (n->type) {
     case NODE_INT: emit(c, "  mov rax, %lld\n", n->int_val); break;
-    case NODE_FLOAT: emit(c, "  mov rax, %lld\n", (long long)n->float_val); break;
+    case NODE_FLOAT: {
+        uint64_t bits;
+        memcpy(&bits, &n->float_val, 8);
+        emit(c, "  mov rax, 0x%llx\n", (unsigned long long)bits);
+        break;
+    }
     case NODE_BOOL: emit(c, "  mov rax, %d\n", n->bool_val ? 1 : 0); break;
     case NODE_STR: {
         int id = get_str_id(c, n->str_val);
@@ -594,11 +599,28 @@ static void gen_expr(Codegen *c, Node *n) {
         else emit(c, "  neg rax\n");
         break;
     case NODE_BINARY: {
+        int op = n->binary.op;
+        /* check if either operand is a float literal */
+        int is_float = (n->binary.left && n->binary.left->type == NODE_FLOAT) ||
+                       (n->binary.right && n->binary.right->type == NODE_FLOAT);
+        if (is_float && op <= 3) {
+            /* float arithmetic: use SSE */
+            gen_expr(c, n->binary.left);
+            emit(c, "  push rax\n");
+            gen_expr(c, n->binary.right);
+            emit(c, "  mov rcx, rax\n  pop rdx\n");
+            emit(c, "  movq xmm0, rdx\n  movq xmm1, rcx\n");
+            if (op == 0) emit(c, "  addsd xmm0, xmm1\n");
+            else if (op == 1) emit(c, "  subsd xmm0, xmm1\n");
+            else if (op == 2) emit(c, "  mulsd xmm0, xmm1\n");
+            else if (op == 3) emit(c, "  divsd xmm0, xmm1\n");
+            emit(c, "  movq rax, xmm0\n");
+            break;
+        }
         gen_expr(c, n->binary.left);
         emit(c, "  push rax\n");
         gen_expr(c, n->binary.right);
         emit(c, "  mov rcx, rax\n  pop rdx\n");
-        int op = n->binary.op;
         if (op <= 4) {
             if (op == 0) emit(c, "  mov rax, rdx\n  add rax, rcx\n");
             else if (op == 1) emit(c, "  mov rax, rdx\n  sub rax, rcx\n");
@@ -1142,8 +1164,6 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
     }
 
     if (!gui) {
-        emit(&cg, ".globl _start\n.type _start, @function\n_start:\n");
-        emit(&cg, "  call main\n  mov rdi, rax\n  mov rax, 60\n  syscall\n");
         emit_print_int(&cg);
         emit_print_float(&cg);
         emit_sleep(&cg);
@@ -1212,7 +1232,7 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
         }
         unlink(gui_obj);
     } else {
-        snprintf(cmd, sizeof(cmd), "cc -o %s %s -nostartfiles -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2", output_file, obj_path);
+        snprintf(cmd, sizeof(cmd), "cc -o %s %s -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2", output_file, obj_path);
         if (system(cmd) != 0) {
             diag_add(diag, 3001, SEV_ERROR, 0, 0, 0, "linking failed");
             unlink(asm_path); unlink(obj_path); return 1;

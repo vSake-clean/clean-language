@@ -18,10 +18,7 @@ static void print_usage(void) {
 
 static char *read_file(const char *path, size_t *len_out) {
     FILE *f = fopen(path, "rb");
-    if (!f) {
-        fprintf(stderr, "error: cannot open '%s'\n", path);
-        return NULL;
-    }
+    if (!f) return NULL;
     fseek(f, 0, SEEK_END);
     long len = ftell(f);
     if (len < 0) { fclose(f); return NULL; }
@@ -59,10 +56,43 @@ static const char *get_rt_path(void) {
     return NULL;
 }
 
+static char *concat_source(const char *prefix, size_t prefix_len, const char *main, size_t main_len, size_t *out_len) {
+    size_t total = prefix_len + 1 + main_len;
+    char *buf = malloc(total + 1);
+    if (!buf) return NULL;
+    memcpy(buf, prefix, prefix_len);
+    buf[prefix_len] = '\n';
+    memcpy(buf + prefix_len + 1, main, main_len);
+    buf[total] = 0;
+    *out_len = total;
+    return buf;
+}
+
 static int compile(const char *source_file, const char *output_file, int run_it, int prog_argc, char **prog_argv) {
     size_t source_len;
     char *source = read_file(source_file, &source_len);
-    if (!source) return 1;
+    if (!source) { fprintf(stderr, "error: cannot open '%s'\n", source_file); return 1; }
+
+    /* load prelude — try CWD then binary-relative paths */
+    size_t prelude_len = 0;
+    char *prelude_src = read_file("lib/prelude.cl", &prelude_len);
+    if (!prelude_src) {
+        const char *rt = get_rt_path();
+        if (rt) {
+            char pp[PATH_MAX + 64];
+            snprintf(pp, sizeof(pp), "%s/../lib/prelude.cl", rt);
+            prelude_src = read_file(pp, &prelude_len);
+        }
+    }
+    if (prelude_src) {
+        size_t combined_len = 0;
+        char *combined = concat_source(prelude_src, prelude_len, source, source_len, &combined_len);
+        free(prelude_src);
+        free(source);
+        source = combined;
+        source_len = combined_len;
+    }
+    /* if prelude not found, continue without it */
 
     Diag diag;
     diag_init(&diag, source_file, source, source_len);
@@ -85,7 +115,6 @@ static int compile(const char *source_file, const char *output_file, int run_it,
     if (diag_has_any(&diag)) diag_print_all(&diag);
 
     const char *rt_path = get_rt_path();
-
     if (output_file) {
         codegen_compile(prog, source_file, output_file, &diag, rt_path);
     }

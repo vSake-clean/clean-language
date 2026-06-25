@@ -163,24 +163,37 @@ static Node *parse_item(Parser *p) {
         n->struct_decl.fields = NULL;
         Node **tail = &n->struct_decl.fields;
         if (peek(p).type == TOK_COLON) next(p);
-        if (peek(p).type == TOK_NEWLINE) next(p);
-        if (peek(p).type == TOK_INDENT) {
+        if (peek(p).type == TOK_NEWLINE) {
             next(p);
-            while (peek(p).type != TOK_DEDENT && peek(p).type != TOK_EOF) {
-                Token ft = next(p);
-                if (ft.type == TOK_NEWLINE) continue;
-                if (ft.type == TOK_IDENT) {
-                    Node *f = node_new(NODE_LET);
-                    f->let.name = ft.text; ft.text = NULL;
-                    f->let.init = NULL;
-                    f->src_line = ft.line; f->src_col = ft.col;
-                    *tail = f; tail = &f->next;
-                } else {
-                    diag_add(p->diag, 2008, SEV_ERROR, ft.line, ft.col, ft.len, "expected field name in struct");
-                    p->error_count++;
+            if (peek(p).type == TOK_INDENT) {
+                next(p);
+                while (peek(p).type != TOK_DEDENT && peek(p).type != TOK_EOF) {
+                    Token ft = next(p);
+                    if (ft.type == TOK_NEWLINE) continue;
+                    if (ft.type == TOK_IDENT) {
+                        Node *f = node_new(NODE_LET);
+                        f->let.name = ft.text; ft.text = NULL;
+                        f->let.init = NULL;
+                        f->src_line = ft.line; f->src_col = ft.col;
+                        *tail = f; tail = &f->next;
+                    } else {
+                        diag_add(p->diag, 2008, SEV_ERROR, ft.line, ft.col, ft.len, "expected field name in struct");
+                        p->error_count++;
+                    }
                 }
+                if (peek(p).type == TOK_DEDENT) next(p);
             }
-            if (peek(p).type == TOK_DEDENT) next(p);
+        } else {
+            /* one-liner: struct Foo: bar */
+            while (peek(p).type == TOK_IDENT) {
+                Token ft = next(p);
+                Node *f = node_new(NODE_LET);
+                f->let.name = ft.text; ft.text = NULL;
+                f->let.init = NULL;
+                f->src_line = ft.line; f->src_col = ft.col;
+                *tail = f; tail = &f->next;
+                if (peek(p).type == TOK_COMMA) next(p);
+            }
         }
         if (p->struct_count < MAX_PSTRUCTS) {
             PStructDef *ps = &p->structs[p->struct_count++];
@@ -817,8 +830,8 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
         Token n = peek(p);
         if (n.type == TOK_LPAREN) {
             next(p);
-            /* check if this is a struct literal */
-            if (left->type == NODE_IDENT && is_struct(p, left->ident)) {
+            /* check if this is a struct literal (PascalCase names only) */
+            if (left->type == NODE_IDENT && left->ident[0] >= 'A' && left->ident[0] <= 'Z' && is_struct(p, left->ident)) {
                 Node *sl = node_new(NODE_STRUCT_LITERAL);
                 sl->struct_literal.name = left->ident; left->ident = NULL;
                 sl->struct_literal.args = NULL;
@@ -829,7 +842,7 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
                 }
                 consume(p, TOK_RPAREN, "expected ')' after struct fields");
                 left = sl;
-            } else if (left->type == NODE_IDENT && is_enum(p, left->ident)) {
+            } else if (left->type == NODE_IDENT && left->ident[0] >= 'A' && left->ident[0] <= 'Z' && is_enum(p, left->ident)) {
                 /* enum literal: Option(Some(val)) — parse as constructor call */
                 Node *el = node_new(NODE_ENUM_LITERAL);
                 el->enum_literal.enum_name = left->ident; left->ident = NULL;
