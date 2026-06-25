@@ -160,10 +160,16 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - List comprehensions always use print_int (no pure iteration yet)
 - `assert` uses abort(1) — no custom assertion message
 - Comprehensions only support range-based iteration (start..end), not arbitrary iterables
-- Enum type parameters (`Option<T>`) parsed but monomorphization not implemented — payloads use fixed-size allocation
+- Enum type parameters (`Option<T>`) parsed but monomorphization partial — payloads still 8-byte aligned (bool size not yet 1 byte in match arms)
 - No channels, green threads, or async support yet
 - `@memoize`, `@lazy` annotations not yet implemented
-- No memory management: all allocations via `brk` (string clones, struct/enum literals) are never freed
+- GC: scope-based free for local heap vars, but cross-function heap transfers may still leak
 - `calc_expr` builtin has ~256 lines of hand-written assembly (maintainability issue)
 - No `\n` after `print_str` output (no newline appended)
 - `clean run` exit code is ignored (always returns 0 to shell)
+
+## Recent Changes (2024-06-25)
+- **Type checker** (`check.c`): `infer_expr_type()` walks AST to determine ValType of any expression. `check_stmt` compares declared vs inferred types for `let`, `assign`, `return`. Error code E1004 ("type mismatch"). Currently checks annotated types only; untyped variables pass without error.
+- **GC**: Replaced `brk` syscalls with `malloc`/`free` for all heap allocations (struct literals, enum literals). SymTab `is_heap[]` tracks heap-allocated variables. Scope-based free at function exit. Assignment to heap var frees old value first.
+- **Monomorphization foundations**: `valtype_size()` returns type byte sizes (bool=1, others=8). `infer_node_type()` + `valtype_size()` used in enum literal allocation. Match arm payload loads still at 8 bytes for now (full type tracking needs symbol table access in codegen).
+- **Parser fixes**: enum variant shorthand in `parse_expr_prec` for PascalCase names; match arm `:` separator consumed; non-PascalCase call fallthrough restored.
