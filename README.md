@@ -207,7 +207,7 @@ clean build program.cl binary     # tworzy plik ELF
 
 ## Benchmark
 
-Cztery testy porównujące Clean z C, PHP i Ruby na tym samym sprzęcie (Linux x86-64, Intel i7). Wszystkie benchmarki w [bench/](bench/).
+Pięć testów porównujących Clean z C, PHP, Ruby i Python na tym samym sprzęcie (Linux x86-64, Intel i7). Wszystkie benchmarki w [bench/](bench/).
 
 | Benchmark | Clean | C | PHP | Ruby | Python |
 |-----------|-------|---|-----|------|--------|
@@ -263,23 +263,9 @@ Clean emituje surowy x86-64 assembly bez optymalizacji rejestrów — każda zmi
 - **~640× szybszy od Pythona** w matrix 100³
 - **~5× szybszy od Pythona** w prime sieve
 
-### Dodatkowe benchmarki
-
-| Benchmark | Clean | C (gcc -O0) | C (gcc -O2) | Python |
-|-----------|-------|-------------|-------------|--------|
-| Kompilacja "hello world" | 0.04 s | 0.20 s | 0.22 s | — |
-| Rozmiar binarki (hello) | 16 KB | 16 KB | 16 KB | — |
-| fib(40) iteracyjny | 0.32 s | 0.08 s | 0.02 s | 12.5 s |
-| Silnia(20) rekurencyjna | 0.18 s | 0.05 s | <0.01 s | 3.8 s |
-| Bubblesort 10k elementów | 0.51 s | 0.12 s | 0.03 s | 18.2 s |
-| Czas startu programu | 0.3 ms | 0.2 ms | 0.2 ms | 35 ms |
-| Czas od zapisu do uruchomienia (clean run) | 0.08 s | — | — | — |
-
-Clean kompiluje się w ~0.04 s niezależnie od wielkości programu (kompilator ma ~3000 linii C). Czas `clean run` od zapisu pliku do wyjścia programu to średnio 0.08 s, co umożliwia błyskawiczną iterację w stylu skryptowym.
-
-W planach: rejestrowa alokacja zmiennych i dalsze optymalizacje backendu.
-
 ---
+
+
 
 ## Poradnik
 

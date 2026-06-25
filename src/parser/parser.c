@@ -16,6 +16,19 @@ static int is_enum(Parser *p, const char *name) {
     return 0;
 }
 
+static int find_enum_variant(Parser *p, const char *name, int *out_enum_idx, int *out_variant_idx) {
+    for (int ei = 0; ei < p->enum_count; ei++) {
+        for (int vi = 0; vi < p->enums[ei].variant_count; vi++) {
+            if (strcmp(p->enums[ei].variants[vi], name) == 0) {
+                if (out_enum_idx) *out_enum_idx = ei;
+                if (out_variant_idx) *out_variant_idx = vi;
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 void parser_init(Parser *p, const char *filename, const char *source, Diag *diag) {
     lexer_init(&p->lexer, source);
     p->error_count = 0;
@@ -475,11 +488,12 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
                     }
                     arm->match_arm.body = lit_body;
                 }
-                /* consume '=>' */
+                /* consume '=>', '->', or ':' after pattern */
                 if (match(p, TOK_EQ)) {
                     if (peek(p).type == TOK_GT) next(p);
                 }
                 if (match(p, TOK_ARROW)) {}
+                if (match(p, TOK_COLON)) {}
                 /* if guard */
                 if (match(p, TOK_IF)) {
                     arm->match_arm.guard = parse_expr(p);
@@ -782,11 +796,27 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
         break;
     case TOK_TRUE: next(p); left = node_new(NODE_BOOL); left->bool_val = 1; left->src_line = t.line; left->src_col = t.col; break;
     case TOK_FALSE: next(p); left = node_new(NODE_BOOL); left->bool_val = 0; left->src_line = t.line; left->src_col = t.col; break;
-    case TOK_IDENT:
-        next(p); left = node_new(NODE_IDENT);
-        left->ident = t.text; t.text = NULL;
-        left->src_line = t.line; left->src_col = t.col;
+    case TOK_IDENT: {
+        next(p);
+        /* bare enum variant without parens: None, Some, etc. */
+        int ei, vi;
+        int is_variant = (t.text[0] >= 'A' && t.text[0] <= 'Z' && find_enum_variant(p, t.text, &ei, &vi));
+        /* Only create enum literal now if NOT followed by ( — that's handled in postfix */
+        if (is_variant && peek(p).type != TOK_LPAREN) {
+            Node *el = node_new(NODE_ENUM_LITERAL);
+            el->enum_literal.enum_name = strdup(p->enums[ei].name);
+            free(t.text); t.text = NULL;
+            el->enum_literal.variant = strdup(p->enums[ei].variants[vi]);
+            el->enum_literal.payload = NULL;
+            el->src_line = t.line; el->src_col = t.col;
+            left = el;
+        } else {
+            left = node_new(NODE_IDENT);
+            left->ident = t.text; t.text = NULL;
+            left->src_line = t.line; left->src_col = t.col;
+        }
         break;
+    }
     case TOK_LBRACK: {
         next(p);
         Node *map = parse_expr(p);
@@ -870,6 +900,38 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
                 }
                 consume(p, TOK_RPAREN, "expected ')' after enum");
                 left = el;
+            } else if (left->type == NODE_IDENT && left->ident[0] >= 'A' && left->ident[0] <= 'Z') {
+                /* enum variant shorthand: Some(42) */
+                int ei, vi;
+                if (find_enum_variant(p, left->ident, &ei, &vi)) {
+                    Node *el = node_new(NODE_ENUM_LITERAL);
+                    el->enum_literal.enum_name = strdup(p->enums[ei].name);
+                    free(left->ident); left->ident = NULL;
+                    el->enum_literal.variant = strdup(p->enums[ei].variants[vi]);
+                    el->enum_literal.payload = NULL;
+                    if (peek(p).type != TOK_RPAREN) {
+                        el->enum_literal.payload = parse_expr(p);
+                        Node **tail = &el->enum_literal.payload;
+                        while (match(p, TOK_COMMA)) {
+                            *tail = parse_expr(p);
+                            tail = &(*tail)->next;
+                        }
+                    }
+                    consume(p, TOK_RPAREN, "expected ')'");
+                    left = el;
+                } else {
+                    Node *call = node_new(NODE_CALL);
+                    call->call.callee = left;
+                    call->call.args = NULL;
+                    call->src_line = n.line; call->src_col = n.col;
+                    Node **tail = &call->call.args;
+                    if (peek(p).type != TOK_RPAREN) {
+                        *tail = parse_expr(p); tail = &(*tail)->next;
+                        while (match(p, TOK_COMMA)) { *tail = parse_expr(p); tail = &(*tail)->next; }
+                    }
+                    consume(p, TOK_RPAREN, "expected ')' after arguments");
+                    left = call;
+                }
             } else {
                 Node *call = node_new(NODE_CALL);
                 call->call.callee = left;

@@ -1,6 +1,7 @@
 #include "codegen.h"
 #include "../ast.h"
 #include "../diag.h"
+#include "../check.h"
 #include "../parser/parser.h"
 #include "../runtime/clgui_embed.h"
 #include <stdio.h>
@@ -33,6 +34,7 @@ typedef struct {
 typedef struct {
     char name[64];
     char variants[MAX_CG_VARIANTS][64];
+    int variant_sizes[MAX_CG_VARIANTS];
     int variant_count;
     int total_size;
 } CEnumDef;
@@ -42,6 +44,7 @@ typedef struct {
     int offsets[MAX_VARS];
     int struct_idx[MAX_VARS];
     int is_float[MAX_VARS];
+    int is_heap[MAX_VARS];
     int count;
     int stack_size;
 } SymTab;
@@ -68,6 +71,7 @@ static int sym_add(SymTab *s, const char *name) {
     s->offsets[s->count] = s->stack_size;
     s->struct_idx[s->count] = -1;
     s->is_float[s->count] = 0;
+    s->is_heap[s->count] = 0;
     s->count++;
     return s->offsets[s->count-1];
 }
@@ -808,10 +812,8 @@ static void gen_expr(Codegen *c, Node *n) {
         int i = 0;
         for (Node *a = n->struct_literal.args; a && i < 16; a = a->next) args[i++] = a;
         for (int j = i-1; j >= 0; j--) { gen_expr(c, args[j]); emit(c, "  push rax\n"); }
-        emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
+        emit(c, "  mov rdi, %d\n  call malloc\n", s->total_size > 0 ? s->total_size : 8);
         emit(c, "  mov rbx, rax\n");
-        emit(c, "  add rax, %d\n", s->total_size > 0 ? s->total_size : 8);
-        emit(c, "  mov rdi, rax\n  mov rax, 12\n  syscall\n");
         for (int j = 0; j < argc && j < s->field_count; j++) {
             emit(c, "  pop rax\n");
             emit(c, "  mov qword ptr [rbx + %d], rax\n", s->offsets[j]);
@@ -829,15 +831,15 @@ static void gen_expr(Codegen *c, Node *n) {
         for (int i = 0; i < e->variant_count; i++)
             if (strcmp(e->variants[i], n->enum_literal.variant) == 0) { tag = i; break; }
         if (tag < 0) { emit(c, "  xor rax, rax\n"); break; }
-        /* allocate tag + payload */
-        emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
+        /* compute actual payload size from expression types (monomorphization) */
+        int payload_slots = 0;
+        for (Node *p = n->enum_literal.payload; p; p = p->next) payload_slots++;
+        int alloc_size = (payload_slots + 1) * 8;
+        emit(c, "  mov rdi, %d\n  call malloc\n", alloc_size);
         emit(c, "  mov rbx, rax\n");
-        int enum_size = e->total_size > 16 ? e->total_size : 16;
-        emit(c, "  add rax, %d\n", enum_size);
-        emit(c, "  mov rdi, rax\n  mov rax, 12\n  syscall\n");
         /* store tag */
         emit(c, "  mov qword ptr [rbx], %d\n", tag);
-        /* store payload(s) — iterate linked list */
+        /* store payload(s) */
         int poff = 8;
         for (Node *p = n->enum_literal.payload; p; p = p->next) {
             gen_expr(c, p);
@@ -915,16 +917,34 @@ static void gen_stmt(Codegen *c, Node *n) {
             gen_expr(c, n->let.init);
             emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
             int idx = sym_find_idx(&c->sym, n->let.name);
-            if (idx >= 0) c->sym.is_float[idx] = expr_is_float(&c->sym, n->let.init);
+            if (idx >= 0) {
+                c->sym.is_float[idx] = expr_is_float(&c->sym, n->let.init);
+                /* mark as heap if initialized with struct or enum literal */
+                if (n->let.init->type == NODE_STRUCT_LITERAL ||
+                    n->let.init->type == NODE_ENUM_LITERAL)
+                    c->sym.is_heap[idx] = 1;
+            }
         }
         break;
     }
     case NODE_ASSIGN: {
         if (n->assign.lhs->type != NODE_IDENT) break;
-        int off = sym_find(&c->sym, n->assign.lhs->ident);
-        if (off < 0) break;
+        int idx = sym_find_idx(&c->sym, n->assign.lhs->ident);
+        if (idx < 0) break;
+        int off = c->sym.offsets[idx];
+        /* free old heap value before overwriting */
+        if (c->sym.is_heap[idx]) {
+            emit(c, "  mov rdi, [rbp - %d]\n", off);
+            emit(c, "  test rdi, rdi\n  jz .L_skip_free_assign_%d\n", new_label(c));
+            emit(c, "  call free\n");
+            emit(c, ".L_skip_free_assign_%d:\n", new_label(c) - 1);
+        }
         gen_expr(c, n->assign.rhs);
         emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
+        /* update heap flag if RHS creates a new heap value */
+        if (n->assign.rhs && (n->assign.rhs->type == NODE_STRUCT_LITERAL ||
+                               n->assign.rhs->type == NODE_ENUM_LITERAL))
+            c->sym.is_heap[idx] = 1;
         break;
     }
     case NODE_IF: {
@@ -1147,12 +1167,14 @@ static void collect_enums(Codegen *c, Node *prog) {
             for (Node *v = item->enum_decl.variants; v; v = v->next) {
                 if (v->type != NODE_MATCH_ARM || !v->match_arm.variant) continue;
                 if (e->variant_count >= MAX_CG_VARIANTS) continue;
-                strncpy(e->variants[e->variant_count], v->match_arm.variant, 63);
-                e->variants[e->variant_count][63] = 0;
-                e->variant_count++;
+                int idx = e->variant_count;
+                strncpy(e->variants[idx], v->match_arm.variant, 63);
+                e->variants[idx][63] = 0;
                 int payload_size = 0;
                 for (Node *pld = v->match_arm.payload; pld; pld = pld->next) payload_size += 8;
-                if (payload_size + 8 > e->total_size) e->total_size = payload_size + 8;
+                e->variant_sizes[idx] = payload_size + 8;
+                if (e->variant_sizes[idx] > e->total_size) e->total_size = e->variant_sizes[idx];
+                e->variant_count++;
             }
         }
     }
@@ -1178,7 +1200,6 @@ static void gen_fn(Codegen *c, Node *n) {
     int frame = c->sym.stack_size;
     if (frame > 0) { frame = (frame + 15) & ~15; emit(c, "  sub rsp, %d\n", frame); }
     memcpy(&c->sym, &tmp, sizeof(tmp));
-    fflush(stderr);
     reg_idx = 0;
     for (Node *p = n->fn.params; p; p = p->next) {
         if (p->type == NODE_LET && p->let.name) {
@@ -1188,6 +1209,16 @@ static void gen_fn(Codegen *c, Node *n) {
         }
     }
     gen_stmt(c, n->fn.body);
+    /* free heap-allocated local variables at scope exit */
+    for (int i = 0; i < c->sym.count; i++) {
+        if (c->sym.is_heap[i]) {
+            int off = c->sym.offsets[i];
+            emit(c, "  mov rdi, [rbp - %d]\n", off);
+            emit(c, "  test rdi, rdi\n  jz .L_skip_free_%d\n", i);
+            emit(c, "  call free\n");
+            emit(c, ".L_skip_free_%d:\n", i);
+        }
+    }
     emit(c, "  xor rax, rax\n  mov rsp, rbp\n  pop rbp\n  ret\n");
 }
 
