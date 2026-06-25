@@ -20,6 +20,7 @@ install: $(TARGET)
 	install -m 755 $(TARGET) $(PREFIX)/bin/$(CMD)
 	install -d $(PREFIX)/share/$(CMD)
 	install -m 644 src/runtime/clgui.c $(PREFIX)/share/$(CMD)/clgui.c
+	install -m 644 lib/prelude.cl $(PREFIX)/share/$(CMD)/prelude.cl
 	ln -sf $(PREFIX)/bin/$(CMD) $(PREFIX)/bin/cl
 
 clean:

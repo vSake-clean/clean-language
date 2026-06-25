@@ -125,6 +125,21 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 8. **Struct/enum name stealing from function calls**: `Foo(x)` always treated as struct/enum literal when `Foo` was a known struct/enum, even if user wanted function call. Fixed by requiring PascalCase (first char uppercase) for struct/enum literal detection.
 9. **Float SSE arithmetic**: Added SSE float ops (`addsd`/`subsd`/`mulsd`/`divsd`) when either operand of a binary op is NODE_FLOAT. Float results returned in rax via `movq rax, xmm0`.
 
+## Critical Fixes (2024-06-25 Addition — part 2: match + float + misc)
+1. **Match arm index vs variant tag**: Match codegen compared `cmp rax, arm_idx` (0-indexed arm position) instead of looking up the actual enum variant tag. Caused wrong arm to match when arm order differed from variant declaration order (e.g., `Option` with `None` first, match with `Some` first matched `None`). Fixed by adding `find_enum_variant_tag()` which searches all enums for the variant name and returns its true tag index. Returns -1 if not found (triggers diagnostic).
+2. **Float variable tracking**: `is_float` only checked `NODE_FLOAT` literals, ignoring variables containing floats. Added `expr_is_float()` type inference function and `is_float[MAX_VARS]` to `SymTab`. `let x = 3.14` marks `x` as float; `x + y` uses SSE ops.
+3. **Signed integer division/modulo**: `div` is unsigned — gave huge results for negative numbers. Changed to `cqo` + `idiv` for ops 3 (`/`) and 4 (`%`).
+4. **print_int negative numbers**: Used `div` to extract digits, treating negative values as huge unsigned. Added neg check before loop, emits `-` prefix and negates value.
+5. **`_` wildcard in match**: Dead code checked `TOK_NOT` then peeking `TOK_NOT` — never matched `_` (tokenized as `TOK_IDENT`). Fixed by handling `_` in the `TOK_IDENT` branch via `strcmp(pt.text, "_")`.
+6. **set_fg/set_bg clobber rbx**: Used `rbx` (callee-saved) without save/restore. Added `push rbx` / `pop rbx` in both emit_set_fg and emit_set_bg.
+7. **Comprehension end bound unallocated**: Stored end bound at `var_off + 8` without reserving the slot, risking collision with subsequent local variables. Fixed by reserving via `c->sym.stack_size += 8` and using `end_off`.
+8. **indent_stack OOB**: No bounds check before incrementing `l->indent_sp` into `indent_stack[64]`. Added `if (l->indent_sp >= 63) return 0;`.
+9. **calc_expr 256-byte buffer**: Stack buffer limited to 256 bytes with read bound at 255. Increased to 4096 bytes.
+10. **Hardcoded ld path**: `-dynamic-linker /lib64/ld-linux-x86-64.so.2` breaks on Arch (uses `/lib/ld-linux-x86-64.so.2`). Removed — `cc` sets the path automatically.
+11. **make install missing prelude**: `lib/prelude.cl` not installed. Added install rule + updated `main.c` search path to check `$PREFIX/share/clean/prelude.cl`.
+12. **`~` tokenized as TOK_NOT**: Conflicts with logical NOT (`!`/`not`). Changed to `TOK_BITNOT` with codegen support (unary op 2 = `not rax`).
+13. **Enum literal single payload only**: `NODE_ENUM_LITERAL` codegen only stored the first payload arg. Fixed to iterate the linked list and store each at offsets 8, 16, 24...
+
 ## Documentation
 - **README.md** — quickstart, comparison table, CLI reference, examples overview
 - **docs/TUTORIAL.md** — 27-section tutorial: syntax, functions, structs, comprehensions, pipe, ownership, effect, GUI, builtins, terminal, performance, 20 exercises with 10 worked examples

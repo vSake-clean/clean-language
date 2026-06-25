@@ -79,6 +79,7 @@ static int scan_next_line(Lexer *l) {
     /* compare with stack */
     int cur = l->indent_stack[l->indent_sp];
     if (indent > cur) {
+        if (l->indent_sp >= 63) { l->pending_indent = 0; return 0; }
         l->indent_sp++;
         l->indent_stack[l->indent_sp] = indent;
         l->pending_indent = 1;  /* emit INDENT */
@@ -312,7 +313,7 @@ Token lexer_next(Lexer *l) {
         case '^':
             t.type = TOK_BITXOR; l->pos++; l->col++; break;
         case '~':
-            t.type = TOK_NOT; l->pos++; l->col++; break;
+            t.type = TOK_BITNOT; l->pos++; l->col++; break;
         default: l->pos++; l->col++; continue;
         }
         return t;

@@ -73,7 +73,7 @@ static int compile(const char *source_file, const char *output_file, int run_it,
     char *source = read_file(source_file, &source_len);
     if (!source) { fprintf(stderr, "error: cannot open '%s'\n", source_file); return 1; }
 
-    /* load prelude — try CWD then binary-relative paths */
+    /* load prelude — try CWD, binary-relative, then installed location */
     size_t prelude_len = 0;
     char *prelude_src = read_file("lib/prelude.cl", &prelude_len);
     if (!prelude_src) {
@@ -82,6 +82,10 @@ static int compile(const char *source_file, const char *output_file, int run_it,
             char pp[PATH_MAX + 64];
             snprintf(pp, sizeof(pp), "%s/../lib/prelude.cl", rt);
             prelude_src = read_file(pp, &prelude_len);
+            if (!prelude_src) {
+                snprintf(pp, sizeof(pp), "%s/../share/clean/prelude.cl", rt);
+                prelude_src = read_file(pp, &prelude_len);
+            }
         }
     }
     if (prelude_src) {

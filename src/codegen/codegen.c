@@ -161,6 +161,12 @@ static void emit_print_int(Codegen *c) {
     emit(c, "  mov qword ptr [rbp-8], rdi\n");
     emit(c, "  lea rsi, [rbp-40]\n  add rsi, 19\n");
     emit(c, "  mov rax, qword ptr [rbp-8]\n  mov rcx, 10\n");
+    emit(c, "  cmp rax, 0\n  jge .L_print_pos_%d\n", lbl);
+    emit(c, "  neg rax\n  push rax\n");
+    emit(c, "  mov byte ptr [rbp-48], '-'\n");
+    emit(c, "  mov rdi, 1\n  lea rsi, [rbp-48]\n  mov rdx, 1\n  mov rax, 1\n  syscall\n");
+    emit(c, "  pop rax\n");
+    emit(c, ".L_print_pos_%d:\n", lbl);
     emit(c, "  cmp rax, 0\n");
     emit(c, "  jne .L_print_loop_%d\n", lbl);
     emit(c, "  dec rsi\n  mov byte ptr [rsi], '0'\n");
@@ -384,7 +390,7 @@ static void emit_set_fg(Codegen *c) {
     int L = new_label(c);
     emit(c, "\n# set_fg(rdi=color) -> void (256-color foreground)\n");
     emit(c, ".globl set_fg\n.type set_fg, @function\nset_fg:\n");
-    emit(c, "  push rbp\n  mov rbp, rsp\n  sub rsp, 32\n");
+    emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  sub rsp, 32\n");
     emit(c, "  mov qword ptr [rbp-8], rdi\n");
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_fg]\n");
     emit(c, "  mov rdx, 7\n  syscall\n");
@@ -404,14 +410,14 @@ static void emit_set_fg(Codegen *c) {
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_m]\n");
     emit(c, "  mov rdx, 1\n  syscall\n");
-    emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
+    emit(c, "  mov rsp, rbp\n  pop rbx\n  pop rbp\n  ret\n");
 }
 
 static void emit_set_bg(Codegen *c) {
     int L = new_label(c);
     emit(c, "\n# set_bg(rdi=color) -> void (256-color background)\n");
     emit(c, ".globl set_bg\n.type set_bg, @function\nset_bg:\n");
-    emit(c, "  push rbp\n  mov rbp, rsp\n  sub rsp, 32\n");
+    emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  sub rsp, 32\n");
     emit(c, "  mov qword ptr [rbp-8], rdi\n");
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_bg]\n");
     emit(c, "  mov rdx, 7\n  syscall\n");
@@ -431,7 +437,7 @@ static void emit_set_bg(Codegen *c) {
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_m]\n");
     emit(c, "  mov rdx, 1\n  syscall\n");
-    emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
+    emit(c, "  mov rsp, rbp\n  pop rbx\n  pop rbp\n  ret\n");
 }
 
 static void emit_calc_expr(Codegen *c) {
@@ -440,22 +446,22 @@ static void emit_calc_expr(Codegen *c) {
     emit(c, ".globl calc_expr\n");
     emit(c, ".type calc_expr, @function\n");
     emit(c, "calc_expr:\n");
-    emit(c, "  push rbp\n  push rbx\n  mov rbp, rsp\n  sub rsp, 256\n");
+    emit(c, "  push rbp\n  push rbx\n  mov rbp, rsp\n  sub rsp, 4096\n");
     emit(c, "  xor rbx, rbx\n");
     emit(c, ".L_ce_read_%d:\n", L);
     emit(c, "  xor rax, rax\n  mov rdi, 0\n");
-    emit(c, "  lea rsi, [rbp-256]\n  add rsi, rbx\n  mov rdx, 1\n  syscall\n");
+    emit(c, "  lea rsi, [rbp-4096]\n  add rsi, rbx\n  mov rdx, 1\n  syscall\n");
     emit(c, "  cmp rax, 1\n  jne .L_ce_eof_%d\n", L);
-    emit(c, "  mov al, byte ptr [rbp-256+rbx]\n");
+    emit(c, "  mov al, byte ptr [rbp-4096+rbx]\n");
     emit(c, "  cmp al, 10\n  je .L_ce_rdone_%d\n", L);
-    emit(c, "  inc rbx\n  cmp rbx, 255\n  jb .L_ce_read_%d\n", L);
+    emit(c, "  inc rbx\n  cmp rbx, 4095\n  jb .L_ce_read_%d\n", L);
     emit(c, ".L_ce_eof_%d:\n", L);
     emit(c, "  test rbx, rbx\n  jz .L_ce_exit_%d\n", L);
     emit(c, "  jmp .L_ce_rdone_%d\n", L);
     emit(c, ".L_ce_rdone_%d:\n", L);
-    emit(c, "  mov byte ptr [rbp-256+rbx], 0\n");
+    emit(c, "  mov byte ptr [rbp-4096+rbx], 0\n");
     emit(c, "  test rbx, rbx\n  jz .L_ce_empty_%d\n", L);
-    emit(c, "  lea rsi, [rbp-256]\n");
+    emit(c, "  lea rsi, [rbp-4096]\n");
     emit(c, ".L_ce_skip1_%d:\n", L);
     emit(c, "  mov al, byte ptr [rsi]\n  cmp al, ' '\n");
     emit(c, "  jne .L_ce_got1_%d\n  inc rsi\n  jmp .L_ce_skip1_%d\n", L, L);
@@ -581,7 +587,7 @@ static int find_enum_variant_tag(Codegen *c, const char *variant) {
         for (int j = 0; j < c->enums[i].variant_count; j++)
             if (strcmp(c->enums[i].variants[j], variant) == 0)
                 return j;
-    return 0; /* fallback — use arm index */
+    return -1; /* not found */
 }
 
 static int expr_is_float(SymTab *s, Node *n) {
@@ -628,7 +634,8 @@ static void gen_expr(Codegen *c, Node *n) {
     case NODE_UNARY:
         gen_expr(c, n->unary.operand);
         if (n->unary.op == 0) emit(c, "  test rax, rax\n  setz al\n  movzx rax, al\n");
-        else emit(c, "  neg rax\n");
+        else if (n->unary.op == 1) emit(c, "  neg rax\n");
+        else if (n->unary.op == 2) emit(c, "  not rax\n");
         break;
     case NODE_BINARY: {
         int op = n->binary.op;
@@ -658,8 +665,8 @@ static void gen_expr(Codegen *c, Node *n) {
             if (op == 0) emit(c, "  mov rax, rdx\n  add rax, rcx\n");
             else if (op == 1) emit(c, "  mov rax, rdx\n  sub rax, rcx\n");
             else if (op == 2) emit(c, "  mov rax, rdx\n  mul rcx\n");
-            else if (op == 3) emit(c, "  mov rax, rdx\n  xor rdx, rdx\n  div rcx\n");
-            else if (op == 4) emit(c, "  mov rax, rdx\n  xor rdx, rdx\n  div rcx\n  mov rax, rdx\n");
+            else if (op == 3) emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n");
+            else if (op == 4) emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n  mov rax, rdx\n");
         } else if (op <= 10) {
             static const char *cc[] = {"sete","setne","setl","setle","setg","setge"};
             emit(c, "  cmp rdx, rcx\n  %s al\n  movzx rax, al\n", cc[op-5]);
@@ -713,9 +720,13 @@ static void gen_expr(Codegen *c, Node *n) {
     case NODE_COMPREHENSION: {
         int L = new_label(c);
         int var_off = -1;
+        int end_off = -1;
         if (n->comp.var) {
             var_off = sym_find(&c->sym, n->comp.var);
             if (var_off < 0) var_off = sym_add(&c->sym, n->comp.var);
+            /* reserve slot for end bound after loop variable */
+            end_off = c->sym.stack_size + 8;
+            c->sym.stack_size += 8;
         }
         if (var_off < 0) { emit(c, "  xor rax, rax\n"); break; }
         emit(c, "  push r12\n  push rbx\n");
@@ -725,16 +736,15 @@ static void gen_expr(Codegen *c, Node *n) {
         if (!end) {
             emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
             emit(c, "  inc rax\n");
-            int end_off = var_off + 8;
             emit(c, "  mov qword ptr [rbp - %d], rax\n", end_off);
         } else {
             gen_expr(c, end);
-            emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off + 8);
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", end_off);
         }
         emit(c, "  xor r12, r12\n");
         emit(c, ".L_comp_loop_%d:\n", L);
         emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
-        emit(c, "  mov rcx, qword ptr [rbp - %d]\n", var_off + 8);
+        emit(c, "  mov rcx, qword ptr [rbp - %d]\n", end_off);
         emit(c, "  cmp rax, rcx\n  jge .L_comp_done_%d\n", L);
         if (n->comp.filter) {
             gen_expr(c, n->comp.filter);
@@ -790,10 +800,12 @@ static void gen_expr(Codegen *c, Node *n) {
         emit(c, "  mov rdi, rax\n  mov rax, 12\n  syscall\n");
         /* store tag */
         emit(c, "  mov qword ptr [rbx], %d\n", tag);
-        /* store payload */
-        if (n->enum_literal.payload) {
-            gen_expr(c, n->enum_literal.payload);
-            emit(c, "  mov qword ptr [rbx + 8], rax\n");
+        /* store payload(s) — iterate linked list */
+        int poff = 8;
+        for (Node *p = n->enum_literal.payload; p; p = p->next) {
+            gen_expr(c, p);
+            emit(c, "  mov qword ptr [rbx + %d], rax\n", poff);
+            poff += 8;
         }
         emit(c, "  mov rax, rbx\n");
         break;
@@ -933,9 +945,11 @@ static void gen_stmt(Codegen *c, Node *n) {
                 emit(c, "  jmp .L_match_end_%d\n", end_label);
             } else if (arm->match_arm.variant && arm->match_arm.payload) {
                 /* variant with payload: check tag */
+                int tag = find_enum_variant_tag(c, arm->match_arm.variant);
+                if (tag < 0) { char buf[256]; snprintf(buf, sizeof(buf), "unknown enum variant '%s' in match", arm->match_arm.variant); diag_add(c->diag, 2009, SEV_ERROR, 0, 0, 0, buf); }
                 emit(c, "  mov rax, qword ptr [rsp]\n");  /* enum ptr */
                 emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
-                emit(c, "  cmp rax, %d\n", find_enum_variant_tag(c, arm->match_arm.variant));
+                emit(c, "  cmp rax, %d\n", tag < 0 ? 0 : tag);
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
                 /* bind payload: extract at offset 8 */
                 emit(c, "  mov rax, qword ptr [rsp]\n");
@@ -949,9 +963,11 @@ static void gen_stmt(Codegen *c, Node *n) {
                 emit(c, "  jmp .L_match_end_%d\n", end_label);
             } else if (arm->match_arm.variant) {
                 /* no payload — check tag */
+                int tag = find_enum_variant_tag(c, arm->match_arm.variant);
+                if (tag < 0) { char buf[256]; snprintf(buf, sizeof(buf), "unknown enum variant '%s' in match", arm->match_arm.variant); diag_add(c->diag, 2009, SEV_ERROR, 0, 0, 0, buf); }
                 emit(c, "  mov rax, qword ptr [rsp]\n");
                 emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
-                emit(c, "  cmp rax, %d\n", find_enum_variant_tag(c, arm->match_arm.variant));
+                emit(c, "  cmp rax, %d\n", tag < 0 ? 0 : tag);
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
                 emit(c, "  add rsp, 8\n");
                 gen_stmt(c, arm->match_arm.body);
@@ -1267,7 +1283,7 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
         }
         unlink(gui_obj);
     } else {
-        snprintf(cmd, sizeof(cmd), "cc -o %s %s -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2", output_file, obj_path);
+        snprintf(cmd, sizeof(cmd), "cc -o %s %s -lc", output_file, obj_path);
         if (system(cmd) != 0) {
             diag_add(diag, 3001, SEV_ERROR, 0, 0, 0, "linking failed");
             unlink(asm_path); unlink(obj_path); return 1;

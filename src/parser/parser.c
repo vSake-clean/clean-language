@@ -444,16 +444,14 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
                 arm->match_arm.body = NULL;
                 arm->src_line = at.line; arm->src_col = at.col;
                 /* pattern: wildcard _, ident, or Variant(payload) */
-                if (match(p, TOK_NOT)) {
-                    /* BITNOT ~ used as wildcard? No, use _ */
-                    Token wild = peek(p);
-                    if (wild.type == TOK_NOT) { next(p); arm->match_arm.variant = strdup("_"); }
-                    else { diag_add(p->diag, 2009, SEV_ERROR, wild.line, wild.col, wild.len, "expected pattern"); p->error_count++; }
-                }
-                else if (peek(p).type == TOK_IDENT) {
+                if (peek(p).type == TOK_IDENT) {
                     Token pt = next(p);
+                    /* check for wildcard _ */
+                    if (strcmp(pt.text, "_") == 0) {
+                        arm->match_arm.variant = strdup("_");
+                    }
                     /* check if this is a variant pattern like Some(x) or just ident */
-                    if (peek(p).type == TOK_LPAREN) {
+                    else if (peek(p).type == TOK_LPAREN) {
                         arm->match_arm.variant = pt.text; pt.text = NULL;
                         next(p);
                         arm->match_arm.payload = parse_expr(p);
@@ -757,6 +755,12 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
     case TOK_NOT:
         next(p); left = node_new(NODE_UNARY);
         left->unary.op = 0;
+        left->unary.operand = parse_expr_prec(p, PREC_UNARY);
+        left->src_line = t.line; left->src_col = t.col;
+        break;
+    case TOK_BITNOT:
+        next(p); left = node_new(NODE_UNARY);
+        left->unary.op = 2;
         left->unary.operand = parse_expr_prec(p, PREC_UNARY);
         left->src_line = t.line; left->src_col = t.col;
         break;
