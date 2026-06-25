@@ -329,7 +329,8 @@ static Node *parse_item(Parser *p) {
         Node *n = node_new(NODE_IMPL_BLOCK);
         n->impl_block.name = for_type_token.text; for_type_token.text = NULL;
         n->impl_block.for_type = NULL;
-        if (peek(p).type == TOK_IDENT) {
+        if (peek(p).type == TOK_FOR) {
+            next(p);
             n->impl_block.for_type = node_new(NODE_IDENT);
             n->impl_block.for_type->ident = strdup(peek(p).text);
             next(p);

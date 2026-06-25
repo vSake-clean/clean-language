@@ -233,6 +233,51 @@ Token lexer_next(Lexer *l) {
                 else if (esc == 't') { buf[cnt++] = '\t'; }
                 else if (esc == '\\') { buf[cnt++] = '\\'; }
                 else if (esc == '"') { buf[cnt++] = '"'; }
+                else if (esc == '0') { buf[cnt++] = '\0'; }
+                else if (esc == 'x') {
+                    l->pos++; l->col++;
+                    unsigned char byte = 0;
+                    for (int h = 0; h < 2 && isxdigit(s[l->pos]); h++) {
+                        byte *= 16;
+                        char c = s[l->pos];
+                        if (c >= '0' && c <= '9') byte += c - '0';
+                        else if (c >= 'a' && c <= 'f') byte += c - 'a' + 10;
+                        else if (c >= 'A' && c <= 'F') byte += c - 'A' + 10;
+                        l->pos++; l->col++;
+                    }
+                    buf[cnt++] = byte;
+                    continue; /* already advanced pos */
+                }
+                else if (esc == 'u') {
+                    l->pos++; l->col++;
+                    unsigned int cp = 0;
+                    for (int h = 0; h < 4 && isxdigit(s[l->pos]); h++) {
+                        cp *= 16;
+                        char c = s[l->pos];
+                        if (c >= '0' && c <= '9') cp += c - '0';
+                        else if (c >= 'a' && c <= 'f') cp += c - 'a' + 10;
+                        else if (c >= 'A' && c <= 'F') cp += c - 'A' + 10;
+                        l->pos++; l->col++;
+                    }
+                    /* encode UTF-8 */
+                    if (cp < 0x80) { buf[cnt++] = cp; }
+                    else if (cp < 0x800) {
+                        buf[cnt++] = 0xC0 | (cp >> 6);
+                        buf[cnt++] = 0x80 | (cp & 0x3F);
+                    }
+                    else if (cp < 0x10000) {
+                        buf[cnt++] = 0xE0 | (cp >> 12);
+                        buf[cnt++] = 0x80 | ((cp >> 6) & 0x3F);
+                        buf[cnt++] = 0x80 | (cp & 0x3F);
+                    }
+                    else {
+                        buf[cnt++] = 0xF0 | (cp >> 18);
+                        buf[cnt++] = 0x80 | ((cp >> 12) & 0x3F);
+                        buf[cnt++] = 0x80 | ((cp >> 6) & 0x3F);
+                        buf[cnt++] = 0x80 | (cp & 0x3F);
+                    }
+                    continue; /* already advanced pos */
+                }
                 else { buf[cnt++] = esc; }
                 l->pos++; l->col++;
             } else {

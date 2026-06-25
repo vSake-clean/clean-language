@@ -139,6 +139,10 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 11. **make install missing prelude**: `lib/prelude.cl` not installed. Added install rule + updated `main.c` search path to check `$PREFIX/share/clean/prelude.cl`.
 12. **`~` tokenized as TOK_NOT**: Conflicts with logical NOT (`!`/`not`). Changed to `TOK_BITNOT` with codegen support (unary op 2 = `not rax`).
 13. **Enum literal single payload only**: `NODE_ENUM_LITERAL` codegen only stored the first payload arg. Fixed to iterate the linked list and store each at offsets 8, 16, 24...
+14. **Float power `**`**: Only integer power loop existed. Added SSE float power (loop `mulsd`) when either operand is float.
+15. **Escape sequences**: Added `\0` (null), `\xHH` (hex byte), `\uHHHH` (UTF-8 encoded codepoint) to lexer string parsing.
+16. **`imul` for multiplication**: Changed `mul rcx` (unsigned) to `imul rax, rcx` (signed) for integer multiply.
+17. **Impl block codegen**: Methods inside `NODE_IMPL_BLOCK` are now emitted as global functions (was missing from codegen main loop). Parser now accepts `impl Type for Trait` syntax (was missing `TOK_FOR` handling).
 
 ## Documentation
 - **README.md** — quickstart, comparison table, CLI reference, examples overview

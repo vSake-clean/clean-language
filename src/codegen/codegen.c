@@ -664,7 +664,7 @@ static void gen_expr(Codegen *c, Node *n) {
         if (op <= 4) {
             if (op == 0) emit(c, "  mov rax, rdx\n  add rax, rcx\n");
             else if (op == 1) emit(c, "  mov rax, rdx\n  sub rax, rcx\n");
-            else if (op == 2) emit(c, "  mov rax, rdx\n  mul rcx\n");
+            else if (op == 2) emit(c, "  mov rax, rdx\n  imul rax, rcx\n");
             else if (op == 3) emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n");
             else if (op == 4) emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n  mov rax, rdx\n");
         } else if (op <= 10) {
@@ -690,13 +690,23 @@ static void gen_expr(Codegen *c, Node *n) {
             else if (op == 16) emit(c, "  mov rax, rdx\n  shl rax, cl\n");
             else if (op == 17) emit(c, "  mov rax, rdx\n  sar rax, cl\n");
         } else if (op == 18) {
-            /* power: loop multiply */
             int L = new_label(c);
-            emit(c, "  mov rax, rdx\n  mov r8, rcx\n  mov r9, 1\n");
-            emit(c, ".L_pow_loop_%d:\n", L);
-            emit(c, "  test r8, r8\n  je .L_pow_done_%d\n", L);
-            emit(c, "  imul r9, rax\n  dec r8\n  jmp .L_pow_loop_%d\n", L);
-            emit(c, ".L_pow_done_%d:\n  mov rax, r9\n", L);
+            if (is_float) {
+                /* float power: SSE loop multiply base^exp */
+                emit(c, "  movq xmm0, rdx\n  mov r8, rcx\n");
+                emit(c, "  mov r9, 1\n  cvtsi2sd xmm1, r9\n");
+                emit(c, ".L_fpow_loop_%d:\n", L);
+                emit(c, "  test r8, r8\n  je .L_fpow_done_%d\n", L);
+                emit(c, "  mulsd xmm1, xmm0\n  dec r8\n  jmp .L_fpow_loop_%d\n", L);
+                emit(c, ".L_fpow_done_%d:\n  movq rax, xmm1\n", L);
+            } else {
+                /* integer power: loop multiply */
+                emit(c, "  mov rax, rdx\n  mov r8, rcx\n  mov r9, 1\n");
+                emit(c, ".L_pow_loop_%d:\n", L);
+                emit(c, "  test r8, r8\n  je .L_pow_done_%d\n", L);
+                emit(c, "  imul r9, rax\n  dec r8\n  jmp .L_pow_loop_%d\n", L);
+                emit(c, ".L_pow_done_%d:\n  mov rax, r9\n", L);
+            }
         }
         break;
     }
@@ -1242,6 +1252,9 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
     for (Node *item = prog->next; item; item = item->next) {
         if (item->type == NODE_FN_DECL) gen_fn(&cg, item);
         else if (item->type == NODE_EXTERN_DECL) emit(&cg, ".globl %s\n", item->ext.name);
+        else if (item->type == NODE_IMPL_BLOCK)
+            for (Node *m = item->impl_block.methods; m; m = m->next)
+                if (m->type == NODE_FN_DECL) gen_fn(&cg, m);
     }
 
     emit_strtab(&cg);
