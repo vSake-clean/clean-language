@@ -18,6 +18,8 @@
 
 #define MAX_CG_STRUCTS 32
 #define MAX_CG_FIELDS 32
+#define MAX_CG_ENUMS 16
+#define MAX_CG_VARIANTS 16
 
 typedef struct {
     char name[64];
@@ -28,9 +30,16 @@ typedef struct {
 } CStructDef;
 
 typedef struct {
+    char name[64];
+    char variants[MAX_CG_VARIANTS][64];
+    int variant_count;
+    int total_size;
+} CEnumDef;
+
+typedef struct {
     char names[MAX_VARS][64];
     int offsets[MAX_VARS];
-    int struct_idx[MAX_VARS];   /* -1 = not a struct, >=0 = struct table index */
+    int struct_idx[MAX_VARS];
     int count;
     int stack_size;
 } SymTab;
@@ -72,6 +81,8 @@ typedef struct {
     int loop_sp;
     CStructDef structs[MAX_CG_STRUCTS];
     int struct_count;
+    CEnumDef enums[MAX_CG_ENUMS];
+    int enum_count;
     int gui_mode;
 } Codegen;
 
@@ -158,6 +169,19 @@ static void emit_print_int(Codegen *c) {
     emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
 }
 
+static void emit_print_float(Codegen *c) {
+    int L = new_label(c);
+    emit(c, "\n# print_float(xmm0) -> void (uses libc printf via call)\n");
+    emit(c, ".globl print_float\n.type print_float, @function\nprint_float:\n");
+    emit(c, "  push rbp\n  mov rbp, rsp\n  sub rsp, 16\n");
+    emit(c, "  movsd qword ptr [rbp-8], xmm0\n");
+    emit(c, "  lea rdi, [rip + .L_float_fmt_%d]\n", L);
+    emit(c, "  movsd xmm0, qword ptr [rbp-8]\n");
+    emit(c, "  mov rax, 1\n  call printf\n");
+    emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
+    emit(c, ".L_float_fmt_%d: .asciz \"%%.6f\\n\"\n", L);
+}
+
 static void emit_sleep(Codegen *c) {
     emit(c, "\n# sleep(rdi)\n");
     emit(c, ".globl sleep\n.type sleep, @function\nsleep:\n");
@@ -201,23 +225,20 @@ static void emit_read_int(Codegen *c) {
     emit(c, ".type read_int, @function\n");
     emit(c, "read_int:\n");
     emit(c, "  push rbp\n  mov rbp, rsp\n  sub rsp, 16\n");
-    emit(c, "  xor r8, r8\n");      /* r8 = accumulator */
-    emit(c, "  xor r9, r9\n");      /* r9 = negative flag (0=pos, 1=neg) */
-    /* read first byte to check for '-' */
+    emit(c, "  xor r8, r8\n");
+    emit(c, "  xor r9, r9\n");
     emit(c, "  xor rax, rax\n  mov rdi, 0\n");
     emit(c, "  lea rsi, [rbp-1]\n  mov rdx, 1\n  syscall\n");
     emit(c, "  cmp rax, 1\n  jne .L_rd_done_%d\n", L);
     emit(c, "  mov al, byte ptr [rbp-1]\n");
     emit(c, "  cmp al, '-'\n  jne .L_rd_digit_%d\n", L);
-    emit(c, "  mov r9, 1\n");       /* set negative flag */
-    /* fall through to digit loop */
+    emit(c, "  mov r9, 1\n");
     emit(c, ".L_rd_read_%d:\n", L);
     emit(c, "  xor rax, rax\n  mov rdi, 0\n");
     emit(c, "  lea rsi, [rbp-2]\n  mov rdx, 1\n  syscall\n");
     emit(c, "  cmp rax, 1\n  jne .L_rd_done_%d\n", L);
     emit(c, "  mov al, byte ptr [rbp-2]\n");
     emit(c, "  jmp .L_rd_check_%d\n", L);
-    /* re-entry point for subsequent digits (read into rbp-2) */
     emit(c, ".L_rd_loop_%d:\n", L);
     emit(c, "  xor rax, rax\n  mov rdi, 0\n");
     emit(c, "  lea rsi, [rbp-2]\n  mov rdx, 1\n  syscall\n");
@@ -229,7 +250,6 @@ static void emit_read_int(Codegen *c) {
     emit(c, "  sub al, '0'\n  movzx rcx, al\n");
     emit(c, "  imul r8, r8, 10\n  add r8, rcx\n");
     emit(c, "  jmp .L_rd_loop_%d\n", L);
-    /* non-digit means we already read it; go to digit loop or done */
     emit(c, ".L_rd_digit_%d:\n", L);
     emit(c, "  cmp al, '0'\n  jb .L_rd_done_%d\n", L);
     emit(c, "  cmp al, '9'\n  ja .L_rd_done_%d\n", L);
@@ -238,7 +258,6 @@ static void emit_read_int(Codegen *c) {
     emit(c, "  jmp .L_rd_loop_%d\n", L);
     emit(c, ".L_rd_done_%d:\n", L);
     emit(c, "  mov rax, r8\n");
-    /* if negative flag is set, negate */
     emit(c, "  test r9, r9\n  je .L_rd_pos_%d\n", L);
     emit(c, "  neg rax\n");
     emit(c, ".L_rd_pos_%d:\n", L);
@@ -251,15 +270,12 @@ static void emit_input(Codegen *c) {
     emit(c, ".globl input\n.type input, @function\ninput:\n");
     emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  push r12\n  sub rsp, 16\n");
     emit(c, "  mov qword ptr [rbp-32], rdi\n");
-    /* strlen of prompt (clobbers rcx, rdi) */
     emit(c, "  mov rdi, qword ptr [rbp-32]\n");
     emit(c, "  xor rax, rax\n  mov rcx, -1\n");
     emit(c, "  repne scasb\n  not rcx\n  dec rcx\n");
     emit(c, "  mov rsi, rcx\n");
-    /* print_str(prompt, len) */
     emit(c, "  mov rdi, qword ptr [rbp-32]\n");
     emit(c, "  call print_str\n");
-    /* read line from stdin into input_buf (use r12 as index — preserved by syscall) */
     emit(c, "  lea rbx, [rip + input_buf]\n");
     emit(c, "  xor r12, r12\n");
     emit(c, ".L_input_loop_%d:\n", L);
@@ -364,7 +380,6 @@ static void emit_set_fg(Codegen *c) {
     emit(c, "  mov qword ptr [rbp-8], rdi\n");
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_fg]\n");
     emit(c, "  mov rdx, 7\n  syscall\n");
-    /* convert color index to decimal */
     emit(c, "  mov rax, qword ptr [rbp-8]\n");
     emit(c, "  lea rsi, [rbp-32]\n  add rsi, 19\n");
     emit(c, "  mov rcx, 10\n  cmp rax, 0\n");
@@ -376,11 +391,9 @@ static void emit_set_fg(Codegen *c) {
     emit(c, "  add dl, '0'\n  dec rsi\n  mov byte ptr [rsi], dl\n");
     emit(c, "  cmp rax, 0\n  jne .L_fg_loop_%d\n", L);
     emit(c, ".L_fg_done_%d:\n", L);
-    /* write digits */
     emit(c, "  lea rbx, [rbp-32]\n  add rbx, 19\n");
     emit(c, "  sub rbx, rsi\n  mov rdx, rbx\n");
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
-    /* write 'm' suffix */
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_m]\n");
     emit(c, "  mov rdx, 1\n  syscall\n");
     emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
@@ -394,7 +407,6 @@ static void emit_set_bg(Codegen *c) {
     emit(c, "  mov qword ptr [rbp-8], rdi\n");
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_bg]\n");
     emit(c, "  mov rdx, 7\n  syscall\n");
-    /* convert color index to decimal */
     emit(c, "  mov rax, qword ptr [rbp-8]\n");
     emit(c, "  lea rsi, [rbp-32]\n  add rsi, 19\n");
     emit(c, "  mov rcx, 10\n  cmp rax, 0\n");
@@ -406,11 +418,9 @@ static void emit_set_bg(Codegen *c) {
     emit(c, "  add dl, '0'\n  dec rsi\n  mov byte ptr [rsi], dl\n");
     emit(c, "  cmp rax, 0\n  jne .L_bg_loop_%d\n", L);
     emit(c, ".L_bg_done_%d:\n", L);
-    /* write digits */
     emit(c, "  lea rbx, [rbp-32]\n  add rbx, 19\n");
     emit(c, "  sub rbx, rsi\n  mov rdx, rbx\n");
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
-    /* write 'm' suffix */
     emit(c, "  mov rax, 1\n  mov rdi, 1\n  lea rsi, [rip + .L_ansi_m]\n");
     emit(c, "  mov rdx, 1\n  syscall\n");
     emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
@@ -418,12 +428,11 @@ static void emit_set_bg(Codegen *c) {
 
 static void emit_calc_expr(Codegen *c) {
     int L = new_label(c);
-    emit(c, "\n# calc_expr() -> rax (reads line, evaluates with precedence)\n");
+    emit(c, "\n# calc_expr() -> rax\n");
     emit(c, ".globl calc_expr\n");
     emit(c, ".type calc_expr, @function\n");
     emit(c, "calc_expr:\n");
     emit(c, "  push rbp\n  push rbx\n  mov rbp, rsp\n  sub rsp, 256\n");
-    /* read line from stdin into [rbp-256..rbp-1]; rbx = length (not rcx — syscall clobbers rcx) */
     emit(c, "  xor rbx, rbx\n");
     emit(c, ".L_ce_read_%d:\n", L);
     emit(c, "  xor rax, rax\n  mov rdi, 0\n");
@@ -438,7 +447,6 @@ static void emit_calc_expr(Codegen *c) {
     emit(c, ".L_ce_rdone_%d:\n", L);
     emit(c, "  mov byte ptr [rbp-256+rbx], 0\n");
     emit(c, "  test rbx, rbx\n  jz .L_ce_empty_%d\n", L);
-    /* parse first number into r8 (current term) */
     emit(c, "  lea rsi, [rbp-256]\n");
     emit(c, ".L_ce_skip1_%d:\n", L);
     emit(c, "  mov al, byte ptr [rsi]\n  cmp al, ' '\n");
@@ -451,22 +459,18 @@ static void emit_calc_expr(Codegen *c) {
     emit(c, "  sub al, '0'\n  movzx r9, al\n  imul r8, r8, 10\n  add r8, r9\n");
     emit(c, "  inc rsi\n  jmp .L_ce_num1_%d\n", L);
     emit(c, ".L_ce_num1d_%d:\n", L);
-    emit(c, "  xor r9, r9\n");  /* r9 = result sum */
-    /* main evaluation loop */
+    emit(c, "  xor r9, r9\n");
     emit(c, ".L_ce_main_%d:\n", L);
-    /* skip whitespace before operator */
     emit(c, ".L_ce_skip2_%d:\n", L);
     emit(c, "  mov al, byte ptr [rsi]\n  cmp al, ' '\n");
     emit(c, "  jne .L_ce_gotop_%d\n  inc rsi\n  jmp .L_ce_skip2_%d\n", L, L);
     emit(c, ".L_ce_gotop_%d:\n", L);
     emit(c, "  cmp al, 0\n  je .L_ce_done_%d\n", L);
     emit(c, "  mov r11b, al\n  inc rsi\n");
-    /* skip whitespace after operator */
     emit(c, ".L_ce_skip3_%d:\n", L);
     emit(c, "  mov al, byte ptr [rsi]\n  cmp al, ' '\n");
     emit(c, "  jne .L_ce_gotnum_%d\n  inc rsi\n  jmp .L_ce_skip3_%d\n", L, L);
     emit(c, ".L_ce_gotnum_%d:\n", L);
-    /* parse next number into r10 */
     emit(c, "  xor r10, r10\n");
     emit(c, ".L_ce_num2_%d:\n", L);
     emit(c, "  mov al, byte ptr [rsi]\n  cmp al, '0'\n  jb .L_ce_num2d_%d\n", L);
@@ -474,7 +478,6 @@ static void emit_calc_expr(Codegen *c) {
     emit(c, "  sub al, '0'\n  movzx rcx, al\n  imul r10, r10, 10\n  add r10, rcx\n");
     emit(c, "  inc rsi\n  jmp .L_ce_num2_%d\n", L);
     emit(c, ".L_ce_num2d_%d:\n", L);
-    /* dispatch on operator in r11b */
     emit(c, "  cmp r11b, '+'\n  jne .L_ce_cm_%d\n", L);
     emit(c, "  add r9, r8\n  mov r8, r10\n  jmp .L_ce_main_%d\n", L);
     emit(c, ".L_ce_cm_%d:\n", L);
@@ -503,6 +506,63 @@ static void emit_calc_expr(Codegen *c) {
     emit(c, "  mov rax, 60\n  xor rdi, rdi\n  syscall\n");
 }
 
+static void emit_string_clone(Codegen *c) {
+    emit(c, "\n# string_clone(rdi=src, rsi=len) -> rax=ptr (allocates + copies)\n");
+    emit(c, ".globl string_clone\n.type string_clone, @function\nstring_clone:\n");
+    emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  sub rsp, 16\n");
+    emit(c, "  mov qword ptr [rbp-24], rdi\n");  /* src */
+    emit(c, "  mov qword ptr [rbp-32], rsi\n");  /* len */
+    /* allocate: len + 1 bytes via brk */
+    emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
+    emit(c, "  mov rbx, rax\n");
+    emit(c, "  mov rdi, qword ptr [rbp-32]\n");
+    emit(c, "  inc rdi\n");  /* len+1 */
+    emit(c, "  add rdi, rbx\n");
+    emit(c, "  mov rax, 12\n  syscall\n");
+    /* copy */
+    emit(c, "  mov rdi, rbx\n");
+    emit(c, "  mov rsi, qword ptr [rbp-24]\n");
+    emit(c, "  mov rcx, qword ptr [rbp-32]\n");
+    emit(c, "  inc rcx\n");  /* include null terminator */
+    emit(c, "  rep movsb\n");
+    emit(c, "  mov rax, rbx\n");
+    emit(c, "  add rsp, 16\n  pop rbx\n  pop rbp\n  ret\n");
+}
+
+static void emit_string_concat(Codegen *c) {
+    emit(c, "\n# string_concat(rdi=a, rsi=b) -> rax=ptr\n");
+    emit(c, ".globl string_concat\n.type string_concat, @function\nstring_concat:\n");
+    emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  push r12\n  push r13\n  sub rsp, 32\n");
+    emit(c, "  mov qword ptr [rbp-48], rdi\n");  /* a */
+    emit(c, "  mov qword ptr [rbp-56], rsi\n");  /* b */
+    /* strlen of a and b */
+    emit(c, "  mov rdi, qword ptr [rbp-48]\n");
+    emit(c, "  xor rax, rax\n  mov rcx, -1\n  repne scasb\n  not rcx\n  dec rcx\n");
+    emit(c, "  mov r12, rcx\n");  /* len_a */
+    emit(c, "  mov rdi, qword ptr [rbp-56]\n");
+    emit(c, "  xor rax, rax\n  mov rcx, -1\n  repne scasb\n  not rcx\n  dec rcx\n");
+    emit(c, "  mov r13, rcx\n");  /* len_b */
+    /* allocate */
+    emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
+    emit(c, "  mov rbx, rax\n");
+    emit(c, "  mov rax, r12\n  add rax, r13\n  inc rax\n");  /* len_a + len_b + 1 */
+    emit(c, "  add rax, rbx\n  mov rdi, rax\n");
+    emit(c, "  mov rax, 12\n  syscall\n");
+    /* copy a */
+    emit(c, "  mov rdi, rbx\n");
+    emit(c, "  mov rsi, qword ptr [rbp-48]\n");
+    emit(c, "  mov rcx, r12\n");
+    emit(c, "  rep movsb\n");
+    /* copy b */
+    emit(c, "  mov rsi, qword ptr [rbp-56]\n");
+    emit(c, "  mov rcx, r13\n");
+    emit(c, "  rep movsb\n");
+    /* null terminate */
+    emit(c, "  mov byte ptr [rdi], 0\n");
+    emit(c, "  mov rax, rbx\n");
+    emit(c, "  add rsp, 32\n  pop r13\n  pop r12\n  pop rbx\n  pop rbp\n  ret\n");
+}
+
 static void gen_expr(Codegen *c, Node *n);
 static void gen_stmt(Codegen *c, Node *n);
 static int find_cg_struct(Codegen *c, const char *name);
@@ -512,10 +572,14 @@ static void gen_expr(Codegen *c, Node *n) {
     if (!n) { emit(c, "  xor rax, rax\n"); return; }
     switch (n->type) {
     case NODE_INT: emit(c, "  mov rax, %lld\n", n->int_val); break;
+    case NODE_FLOAT: emit(c, "  mov rax, %lld\n", (long long)n->float_val); break;
     case NODE_BOOL: emit(c, "  mov rax, %d\n", n->bool_val ? 1 : 0); break;
     case NODE_STR: {
         int id = get_str_id(c, n->str_val);
-        emit(c, "  lea rax, [rip + .L_str_%d]\n", id);
+        /* allocate string via string_clone */
+        emit(c, "  lea rdi, [rip + .L_str_%d]\n", id);
+        emit(c, "  mov rsi, %zu\n", strlen(n->str_val));
+        emit(c, "  call string_clone\n");
         break;
     }
     case NODE_IDENT: {
@@ -556,6 +620,21 @@ static void gen_expr(Codegen *c, Node *n) {
             emit(c, "  test rcx, rcx\n  je .L_or_false_%d\n", l);
             emit(c, ".L_or_true_%d:\n  mov rax, 1\n  jmp .L_or_end_%d\n", l, l);
             emit(c, ".L_or_false_%d:\n  xor rax, rax\n.L_or_end_%d:\n", l, l);
+        } else if (op >= 13 && op <= 17) {
+            /* bitwise ops */
+            if (op == 13) emit(c, "  mov rax, rdx\n  or rax, rcx\n");
+            else if (op == 14) emit(c, "  mov rax, rdx\n  xor rax, rcx\n");
+            else if (op == 15) emit(c, "  mov rax, rdx\n  and rax, rcx\n");
+            else if (op == 16) emit(c, "  mov rax, rdx\n  shl rax, cl\n");
+            else if (op == 17) emit(c, "  mov rax, rdx\n  sar rax, cl\n");
+        } else if (op == 18) {
+            /* power: loop multiply */
+            int L = new_label(c);
+            emit(c, "  mov rax, rdx\n  mov r8, rcx\n  mov r9, 1\n");
+            emit(c, ".L_pow_loop_%d:\n", L);
+            emit(c, "  test r8, r8\n  je .L_pow_done_%d\n", L);
+            emit(c, "  imul r9, rax\n  dec r8\n  jmp .L_pow_loop_%d\n", L);
+            emit(c, ".L_pow_done_%d:\n  mov rax, r9\n", L);
         }
         break;
     }
@@ -578,58 +657,42 @@ static void gen_expr(Codegen *c, Node *n) {
     }
     case NODE_COMPREHENSION: {
         int L = new_label(c);
-        /* add loop variable to symtab (ensures sym_find works even after count_locals reset) */
         int var_off = -1;
         if (n->comp.var) {
             var_off = sym_find(&c->sym, n->comp.var);
             if (var_off < 0) var_off = sym_add(&c->sym, n->comp.var);
         }
         if (var_off < 0) { emit(c, "  xor rax, rax\n"); break; }
-        /* push callee-saved regs we'll use: r12 for counter, rbx for var_off copy */
         emit(c, "  push r12\n  push rbx\n");
-        /* compute iter start */
         gen_expr(c, n->comp.iter);
         emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off);
-        /* compute iter end */
         Node *end = n->comp.iter_end;
         if (!end) {
-            /* if no end, iterate once: set end = start + 1 */
             emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
             emit(c, "  inc rax\n");
-            int end_off = var_off + 8; /* use next slot (may overlap, good enough for demo) */
+            int end_off = var_off + 8;
             emit(c, "  mov qword ptr [rbp - %d], rax\n", end_off);
-            end = node_new(NODE_INT); end->int_val = 0; /* placeholder, not really used */
         } else {
             gen_expr(c, end);
-            /* store end at var_off + 8 (trusting stack layout) */
             emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off + 8);
         }
-        /* counter = 0 */
         emit(c, "  xor r12, r12\n");
-        /* loop start */
         emit(c, ".L_comp_loop_%d:\n", L);
-        /* check var < end */
         emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
         emit(c, "  mov rcx, qword ptr [rbp - %d]\n", var_off + 8);
         emit(c, "  cmp rax, rcx\n  jge .L_comp_done_%d\n", L);
-        /* filter check */
         if (n->comp.filter) {
             gen_expr(c, n->comp.filter);
             emit(c, "  test rax, rax\n  je .L_comp_skip_%d\n", L);
         }
-        /* map expression */
         gen_expr(c, n->comp.map);
-        /* print the result */
         emit(c, "  mov rdi, rax\n  call print_int\n");
-        /* increment counter */
         emit(c, "  inc r12\n");
         if (n->comp.filter) emit(c, ".L_comp_skip_%d:\n", L);
-        /* increment loop variable */
         emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
         emit(c, "  inc rax\n  mov qword ptr [rbp - %d], rax\n", var_off);
         emit(c, "  jmp .L_comp_loop_%d\n", L);
         emit(c, ".L_comp_done_%d:\n", L);
-        /* restore regs, return count */
         emit(c, "  mov rax, r12\n  pop rbx\n  pop r12\n");
         break;
     }
@@ -654,6 +717,32 @@ static void gen_expr(Codegen *c, Node *n) {
         emit(c, "  mov rax, rbx\n");
         break;
     }
+    case NODE_ENUM_LITERAL: {
+        int ei = -1;
+        for (int i = 0; i < c->enum_count; i++)
+            if (strcmp(c->enums[i].name, n->enum_literal.enum_name) == 0) { ei = i; break; }
+        if (ei < 0) { emit(c, "  xor rax, rax\n"); break; }
+        CEnumDef *e = &c->enums[ei];
+        int tag = -1;
+        for (int i = 0; i < e->variant_count; i++)
+            if (strcmp(e->variants[i], n->enum_literal.variant) == 0) { tag = i; break; }
+        if (tag < 0) { emit(c, "  xor rax, rax\n"); break; }
+        /* allocate tag + payload */
+        emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
+        emit(c, "  mov rbx, rax\n");
+        int enum_size = e->total_size > 16 ? e->total_size : 16;
+        emit(c, "  add rax, %d\n", enum_size);
+        emit(c, "  mov rdi, rax\n  mov rax, 12\n  syscall\n");
+        /* store tag */
+        emit(c, "  mov qword ptr [rbx], %d\n", tag);
+        /* store payload */
+        if (n->enum_literal.payload) {
+            gen_expr(c, n->enum_literal.payload);
+            emit(c, "  mov qword ptr [rbx + 8], rax\n");
+        }
+        emit(c, "  mov rax, rbx\n");
+        break;
+    }
     case NODE_INDEX: {
         gen_expr(c, n->index_expr.obj);
         emit(c, "  push rax\n");
@@ -671,7 +760,6 @@ static void gen_expr(Codegen *c, Node *n) {
                 }
             }
             if (!found) {
-                /* fallback: array indexing */
                 emit(c, "  pop rbx\n");
                 gen_expr(c, n->index_expr.index);
                 emit(c, "  shl rax, 3\n  add rax, rbx\n  mov rax, qword ptr [rax]\n");
@@ -681,6 +769,22 @@ static void gen_expr(Codegen *c, Node *n) {
             gen_expr(c, n->index_expr.index);
             emit(c, "  shl rax, 3\n  add rax, rbx\n  mov rax, qword ptr [rax]\n");
         }
+        break;
+    }
+    case NODE_BORROW:
+    case NODE_MUT_BORROW: {
+        if (n->borrow.operand->type == NODE_IDENT) {
+            int off = sym_find(&c->sym, n->borrow.operand->ident);
+            if (off >= 0) emit(c, "  lea rax, [rbp - %d]\n", off);
+            else emit(c, "  xor rax, rax\n");
+        } else {
+            gen_expr(c, n->borrow.operand);
+        }
+        break;
+    }
+    case NODE_DEREF: {
+        gen_expr(c, n->borrow.operand);
+        emit(c, "  mov rax, qword ptr [rax]\n");
         break;
     }
     default: emit(c, "  xor rax, rax\n"); break;
@@ -755,6 +859,60 @@ static void gen_stmt(Codegen *c, Node *n) {
     case NODE_EXPR_STMT:
         gen_expr(c, n->expr_stmt.expr);
         break;
+    case NODE_MATCH: {
+        gen_expr(c, n->match.expr);
+        emit(c, "  push rax\n");  /* save matched value */
+        int end_label = new_label(c);
+        Node *arm = n->match.arms;
+        int arm_idx = 0;
+        while (arm) {
+            int next_arm = new_label(c);
+            if (arm->match_arm.variant && strcmp(arm->match_arm.variant, "_") == 0) {
+                /* wildcard: always matches */
+                emit(c, "  add rsp, 8\n");  /* pop matched value */
+                gen_stmt(c, arm->match_arm.body);
+                emit(c, "  jmp .L_match_end_%d\n", end_label);
+            } else if (arm->match_arm.variant && arm->match_arm.payload) {
+                /* variant with payload: check tag */
+                emit(c, "  mov rax, qword ptr [rsp]\n");  /* enum ptr */
+                emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
+                emit(c, "  cmp rax, %d\n", arm_idx);
+                emit(c, "  jne .L_match_arm_%d\n", next_arm);
+                /* bind payload: extract at offset 8 */
+                emit(c, "  mov rax, qword ptr [rsp]\n");
+                emit(c, "  mov rax, qword ptr [rax + 8]\n");
+                if (arm->match_arm.payload->type == NODE_IDENT) {
+                    int poff = sym_add(&c->sym, arm->match_arm.payload->ident);
+                    emit(c, "  mov qword ptr [rbp - %d], rax\n", poff);
+                }
+                emit(c, "  add rsp, 8\n");
+                gen_stmt(c, arm->match_arm.body);
+                emit(c, "  jmp .L_match_end_%d\n", end_label);
+            } else {
+                /* no payload / simple match */
+                if (arm->match_arm.variant) {
+                    emit(c, "  mov rax, qword ptr [rsp]\n");
+                    if (arm->match_arm.payload) {
+                        /* bind ident */
+                        if (arm->match_arm.payload->type == NODE_IDENT) {
+                            int poff = sym_add(&c->sym, arm->match_arm.payload->ident);
+                            emit(c, "  mov qword ptr [rbp - %d], rax\n", poff);
+                        }
+                    }
+                }
+                emit(c, "  add rsp, 8\n");
+                gen_stmt(c, arm->match_arm.body);
+                emit(c, "  jmp .L_match_end_%d\n", end_label);
+            }
+            emit(c, ".L_match_arm_%d:\n", next_arm);
+            arm = arm->next;
+            arm_idx++;
+        }
+        /* no arm matched: fallthrough */
+        emit(c, "  add rsp, 8\n");
+        emit(c, ".L_match_end_%d:\n", end_label);
+        break;
+    }
     default: break;
     }
 }
@@ -805,6 +963,9 @@ static void count_locals(SymTab *s, Node *n) {
     case NODE_STRUCT_LITERAL:
         for (Node *a = n->struct_literal.args; a; a = a->next) count_locals(s, a);
         break;
+    case NODE_ENUM_LITERAL:
+        if (n->enum_literal.payload) count_locals(s, n->enum_literal.payload);
+        break;
     case NODE_INDEX:
         count_locals(s, n->index_expr.obj);
         count_locals(s, n->index_expr.index);
@@ -815,6 +976,24 @@ static void count_locals(SymTab *s, Node *n) {
         break;
     case NODE_UNARY:
         if (n->unary.operand) count_locals(s, n->unary.operand);
+        break;
+    case NODE_BORROW:
+    case NODE_MUT_BORROW:
+    case NODE_DEREF:
+        if (n->borrow.operand) count_locals(s, n->borrow.operand);
+        break;
+    case NODE_MATCH:
+        count_locals(s, n->match.expr);
+        for (Node *arm = n->match.arms; arm; arm = arm->next) {
+            if (arm->match_arm.payload) count_locals(s, arm->match_arm.payload);
+            if (arm->match_arm.guard) count_locals(s, arm->match_arm.guard);
+            count_locals(s, arm->match_arm.body);
+        }
+        break;
+    case NODE_MATCH_ARM:
+        if (n->match_arm.payload) count_locals(s, n->match_arm.payload);
+        if (n->match_arm.guard) count_locals(s, n->match_arm.guard);
+        count_locals(s, n->match_arm.body);
         break;
     default: break;
     }
@@ -847,6 +1026,28 @@ static void collect_structs(Codegen *c, Node *prog) {
     }
 }
 
+static void collect_enums(Codegen *c, Node *prog) {
+    for (Node *item = prog->next; item; item = item->next) {
+        if (item->type == NODE_ENUM_DECL) {
+            if (c->enum_count >= MAX_CG_ENUMS) continue;
+            CEnumDef *e = &c->enums[c->enum_count++];
+            strncpy(e->name, item->enum_decl.name, 63); e->name[63] = 0;
+            e->variant_count = 0;
+            e->total_size = 8;
+            for (Node *v = item->enum_decl.variants; v; v = v->next) {
+                if (v->type != NODE_MATCH_ARM || !v->match_arm.variant) continue;
+                if (e->variant_count >= MAX_CG_VARIANTS) continue;
+                strncpy(e->variants[e->variant_count], v->match_arm.variant, 63);
+                e->variants[e->variant_count][63] = 0;
+                e->variant_count++;
+                int payload_size = 0;
+                for (Node *pld = v->match_arm.payload; pld; pld = pld->next) payload_size += 8;
+                if (payload_size + 8 > e->total_size) e->total_size = payload_size + 8;
+            }
+        }
+    }
+}
+
 static void gen_fn(Codegen *c, Node *n) {
     sym_init(&c->sym);
     emit(c, "\n.section .text\n");
@@ -856,21 +1057,17 @@ static void gen_fn(Codegen *c, Node *n) {
     emit(c, "  push rbp\n  mov rbp, rsp\n");
     static const char *arg_regs[] = {"rdi","rsi","rdx","rcx","r8","r9"};
     int reg_idx = 0;
-    /* count params */
     for (Node *p = n->fn.params; p; p = p->next) {
         if (p->type == NODE_LET && p->let.name) {
             sym_add(&c->sym, p->let.name);
         }
     }
-    /* pre-count local variables so frame covers all */
     SymTab tmp;
     memcpy(&tmp, &c->sym, sizeof(tmp));
     count_locals(&c->sym, n->fn.body);
     int frame = c->sym.stack_size;
     if (frame > 0) { frame = (frame + 15) & ~15; emit(c, "  sub rsp, %d\n", frame); }
-    /* restore sym table to param-only state, will re-add during gen_stmt */
     memcpy(&c->sym, &tmp, sizeof(tmp));
-    /* store params from registers */
     reg_idx = 0;
     for (Node *p = n->fn.params; p; p = p->next) {
         if (p->type == NODE_LET && p->let.name) {
@@ -911,7 +1108,6 @@ static const char *find_rt_file(const char *rt_path, const char *name, pid_t pid
     if (access(path, F_OK) == 0) return path;
     snprintf(path, sizeof(path), "/tmp/%s", name);
     if (access(path, F_OK) == 0) return path;
-    /* last resort: write embedded source to /tmp */
     snprintf(path, sizeof(path), "/tmp/clean_%d_clgui.c", pid);
     FILE *f = fopen(path, "w");
     if (!f) return NULL;
@@ -935,6 +1131,7 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
     cg.str_cnt = 0;
     cg.loop_sp = 0;
     cg.struct_count = 0;
+    cg.enum_count = 0;
     cg.gui_mode = gui;
 
     emit(&cg, ".intel_syntax noprefix\n");
@@ -948,6 +1145,7 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
         emit(&cg, ".globl _start\n.type _start, @function\n_start:\n");
         emit(&cg, "  call main\n  mov rdi, rax\n  mov rax, 60\n  syscall\n");
         emit_print_int(&cg);
+        emit_print_float(&cg);
         emit_sleep(&cg);
         emit_read_int(&cg);
         emit_print_str(&cg);
@@ -964,16 +1162,18 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
         emit_hide_cursor(&cg);
         emit_show_cursor(&cg);
         emit_get_frame_ptr(&cg);
+        emit_string_clone(&cg);
+        emit_string_concat(&cg);
     }
 
     collect_structs(&cg, prog);
+    collect_enums(&cg, prog);
     for (Node *item = prog->next; item; item = item->next) {
         if (item->type == NODE_FN_DECL) gen_fn(&cg, item);
         else if (item->type == NODE_EXTERN_DECL) emit(&cg, ".globl %s\n", item->ext.name);
     }
 
     emit_strtab(&cg);
-    /* ANSI escape code data for terminal colors */
     emit(&cg, ".L_ansi_cls: .byte 0x1b, '[', '2', 'J', 0x1b, '[', 'H'\n");
     emit(&cg, ".L_ansi_reset: .byte 0x1b, '[', '0', 'm'\n");
     emit(&cg, ".L_ansi_fg: .byte 0x1b, '[', '3', '8', ';', '5', ';'\n");
@@ -995,7 +1195,7 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
     if (gui) {
         const char *clgui_path = find_rt_file(rt_path, "clgui.c", getpid());
         if (!clgui_path) {
-            diag_add(diag, 3002, SEV_ERROR, 0, 0, 0, "clgui.c not found — cannot build GUI program");
+            diag_add(diag, 3002, SEV_ERROR, 0, 0, 0, "clgui.c not found");
             unlink(asm_path); unlink(obj_path); return 1;
         }
         char gui_obj[1024];
@@ -1012,7 +1212,7 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
         }
         unlink(gui_obj);
     } else {
-        snprintf(cmd, sizeof(cmd), "ld -o %s %s", output_file, obj_path);
+        snprintf(cmd, sizeof(cmd), "cc -o %s %s -nostartfiles -lc -dynamic-linker /lib64/ld-linux-x86-64.so.2", output_file, obj_path);
         if (system(cmd) != 0) {
             diag_add(diag, 3001, SEV_ERROR, 0, 0, 0, "linking failed");
             unlink(asm_path); unlink(obj_path); return 1;
@@ -1030,7 +1230,6 @@ int codegen_run(Node *prog, const char *source_file, Diag *diag, const char *rt_
     if (codegen_compile(prog, source_file, output, diag, rt_path) != 0) return 1;
     chmod(output, 0755);
 
-    /* Build argv for child: [output, ...prog_argv[0..prog_argc-1]..., NULL] */
     int total = 1 + prog_argc + 1;
     char **args = (char **)malloc(total * sizeof(char *));
     if (!args) return 1;

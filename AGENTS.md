@@ -39,7 +39,9 @@ Documentation hub: **README.md** (GitHub overview), **docs/TUTORIAL.md** (in-dep
 ## Codegen Opcodes (binary ops)
 ```
 0=+, 1=-, 2=*, 3=/, 4=%, 5==, 6!=, 7=<, 8=<=, 9=>, 10=>=, 11=and, 12=or
+13=|, 14=^, 15=&, 16=<<, 17=>>, 18=**
 ```
+Unary opcodes: 0=not, 1=neg
 
 ## Built-in Functions
 - `print_int(i64)` — prints integer (non-GUI: assembly write syscall; GUI: C function in clgui.c)
@@ -111,6 +113,11 @@ Documentation hub: **README.md** (GitHub overview), **docs/TUTORIAL.md** (in-dep
 2. **Dynamic string buffer**: Lexer string-reading loop replaced fixed 4096-byte `char buf[4096]` with `malloc`/`realloc` growth, supporting arbitrarily large string literals.
 3. **Chunked `emit_strtab`**: Strings >4096 bytes emitted as multiple `.ascii` chunks (each ≤4096 bytes) + trailing `.byte 0`, avoiding GAS line length limits.
 
+## Critical Fixes (2024-06-25 Addition — big-pickle session)
+1. **and/or/not keywords missing from lexer**: `and`, `or`, `not` were not in the keyword table (`lexer.c:22-31`). The lexer treated them as plain identifiers, so `x and y` was parsed as `x(y)` (call to `x` with arg `y` producing `NODE_CALL`) instead of `x AND y` (binary expression). This caused the ownership checker to incorrectly move `x` in `let z = x and y` (since `let x = func()` moves the callee). Added `"and","or","not"` mapped to `TOK_AND,TOK_OR,TOK_NOT`.
+2. **Deref prefix `*` missing from parser**: `*expr` (dereference) was not handled as a prefix operator in `parse_expr_prec`. TOK_STAR was only handled as binary multiplication. Added `case TOK_STAR:` to prefix section creating `NODE_DEREF` node.
+3. **Debug prints removed**: All `fprintf(stderr, "DEBUG: ...")` lines removed from `check.c` before final commit.
+
 ## Documentation
 - **README.md** — quickstart, comparison table, CLI reference, examples overview
 - **docs/TUTORIAL.md** — 27-section tutorial: syntax, functions, structs, comprehensions, pipe, ownership, effect, GUI, builtins, terminal, performance, 20 exercises with 10 worked examples
@@ -120,13 +127,13 @@ Documentation hub: **README.md** (GitHub overview), **docs/TUTORIAL.md** (in-dep
 - `:` after `while`/`if`/`fn` is optional (no error if missing)
 - Variables stay on stack (no register optimization) — 7.3s vs 3.6s C -O0 for 1B count
 - `extern` only at top level (not inside functions)
-- No strings (`*u8`, `usize`, etc.), no enums, no types beyond `i32`/`i64`/`str`/`bool`
+- No strings (`*u8`, `usize`, etc.), no types beyond `i32`/`i64`/`str`/`bool`/float
 - Struct field resolution is by name search across ALL structs (ambiguous field names may resolve incorrectly)
 - Some `diag_add` calls pass `0,0,1` as location (needs token position)
 - The token under the caret in error output may be misaligned if the line has tabs or Unicode
 - List comprehensions always use print_int (no pure iteration yet)
 - `assert` uses abort(1) — no custom assertion message
 - Comprehensions only support range-based iteration (start..end), not arbitrary iterables
-- No Option<T> or Result<T, E> types yet
+- Enum type parameters (`Option<T>`) parsed but monomorphization not implemented — payloads use fixed-size allocation
 - No channels, green threads, or async support yet
 - `@memoize`, `@lazy` annotations not yet implemented

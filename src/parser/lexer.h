@@ -17,6 +17,8 @@ typedef enum {
     TOK_DOT, TOK_DOTDOT, TOK_COMMA, TOK_COLON, TOK_ARROW,
     TOK_PLUSEQ, TOK_MINUSEQ, TOK_STAREQ, TOK_SLASHEQ,
     TOK_PIPE,
+    TOK_BITOR, TOK_BITXOR, TOK_BITAND, TOK_SHL, TOK_SHR,
+    TOK_STARSTAR, TOK_FLOAT, TOK_AMPERSAND,
     TOK_INDENT, TOK_DEDENT, TOK_NEWLINE,
 } TokenType;
 
@@ -24,6 +26,7 @@ typedef struct {
     TokenType type;
     char *text;
     long long int_val;
+    double float_val;
     size_t line;
     size_t col;
     size_t len;

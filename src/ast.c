@@ -85,10 +85,50 @@ void node_free(Node *n) {
         free(n->struct_literal.name);
         node_free(n->struct_literal.args);
         break;
+    case NODE_MATCH:
+        node_free(n->match.expr);
+        node_free(n->match.arms);
+        break;
+    case NODE_MATCH_ARM:
+        free(n->match_arm.variant);
+        node_free(n->match_arm.payload);
+        node_free(n->match_arm.guard);
+        node_free(n->match_arm.body);
+        break;
+    case NODE_ENUM_DECL:
+        free(n->enum_decl.name);
+        node_free(n->enum_decl.type_params);
+        node_free(n->enum_decl.variants);
+        break;
+    case NODE_ENUM_LITERAL:
+        free(n->enum_literal.enum_name);
+        free(n->enum_literal.variant);
+        node_free(n->enum_literal.payload);
+        break;
+    case NODE_BORROW:
+    case NODE_MUT_BORROW:
+        node_free(n->borrow.operand);
+        break;
+    case NODE_DEREF:
+        node_free(n->borrow.operand);
+        break;
+    case NODE_TRAIT_DECL:
+        free(n->trait_decl.name);
+        node_free(n->trait_decl.type_params);
+        node_free(n->trait_decl.methods);
+        break;
+    case NODE_IMPL_BLOCK:
+        free(n->impl_block.name);
+        node_free(n->impl_block.for_type);
+        node_free(n->impl_block.methods);
+        break;
     case NODE_BREAK:
     case NODE_CONTINUE:
+    case NODE_PROGRAM:
+    case NODE_INT:
+    case NODE_FLOAT:
+    case NODE_BOOL:
         break;
-    default: break;
     }
     if (n->next) node_free(n->next);
     free(n);

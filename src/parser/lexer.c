@@ -22,12 +22,14 @@ static int kw_match(const char *s, TokenType *t) {
     static const char *kw[] = {
         "fn","let","mut","var","if","elif","else","while","for","in",
         "return","break","continue","match","struct","enum","trait","impl",
-        "use","pub","unsafe","extern","true","false","unless","effect", NULL
+        "use","pub","unsafe","extern","true","false","unless","effect",
+        "and","or","not", NULL
     };
     static TokenType kt[] = {
         TOK_FN,TOK_LET,TOK_MUT,TOK_VAR,TOK_IF,TOK_ELIF,TOK_ELSE,TOK_WHILE,TOK_FOR,TOK_IN,
         TOK_RETURN,TOK_BREAK,TOK_CONTINUE,TOK_MATCH,TOK_STRUCT,TOK_ENUM,TOK_TRAIT,TOK_IMPL,
-        TOK_USE,TOK_PUB,TOK_UNSAFE,TOK_EXTERN,TOK_TRUE,TOK_FALSE,TOK_UNLESS,TOK_EFFECT
+        TOK_USE,TOK_PUB,TOK_UNSAFE,TOK_EXTERN,TOK_TRUE,TOK_FALSE,TOK_UNLESS,TOK_EFFECT,
+        TOK_AND,TOK_OR,TOK_NOT
     };
     for (int i = 0; kw[i]; i++)
         if (strcmp(s, kw[i]) == 0) { *t = kt[i]; return 1; }
@@ -170,13 +172,39 @@ Token lexer_next(Lexer *l) {
         return t;
     }
 
-    /* integers */
+    /* integers and floats */
     if (isdigit((unsigned char)s[l->pos])) {
         size_t start = l->pos;
         long long val = 0;
         while (isdigit((unsigned char)s[l->pos])) {
             val = val * 10 + (s[l->pos] - '0');
             l->pos++; l->col++;
+        }
+        if (s[l->pos] == '.' || s[l->pos] == 'e' || s[l->pos] == 'E') {
+            /* float literal requires '.' followed by digit/e/E */
+            int is_float = 0;
+            if (s[l->pos] == '.' && (isdigit((unsigned char)s[l->pos+1]) || s[l->pos+1] == 'e' || s[l->pos+1] == 'E')) {
+                is_float = 1;
+                l->pos++; l->col++;
+                while (isdigit((unsigned char)s[l->pos])) { l->pos++; l->col++; }
+            }
+            if (s[l->pos] == 'e' || s[l->pos] == 'E') {
+                is_float = 1;
+                l->pos++; l->col++;
+                if (s[l->pos] == '+' || s[l->pos] == '-') { l->pos++; l->col++; }
+                while (isdigit((unsigned char)s[l->pos])) { l->pos++; l->col++; }
+            }
+            if (is_float) {
+                size_t end = l->pos;
+                size_t flen = end - start;
+                char *fstr = strndup(s + start, flen);
+                double fval = strtod(fstr, NULL);
+                Token t = token_new(l, TOK_FLOAT);
+                t.text = fstr;
+                t.float_val = fval;
+                t.len = flen;
+                return t;
+            }
         }
         Token t = token_new(l, TOK_INT);
         t.int_val = val;
@@ -234,11 +262,13 @@ Token lexer_next(Lexer *l) {
             else { t.type = TOK_NOT; l->pos++; l->col++; }
             break;
         case '<':
-            if (s[l->pos+1] == '=') { t.type = TOK_LE; t.len = 2; l->pos+=2; l->col+=2; }
+            if (s[l->pos+1] == '<') { t.type = TOK_SHL; t.len = 2; l->pos+=2; l->col+=2; }
+            else if (s[l->pos+1] == '=') { t.type = TOK_LE; t.len = 2; l->pos+=2; l->col+=2; }
             else { t.type = TOK_LT; l->pos++; l->col++; }
             break;
         case '>':
-            if (s[l->pos+1] == '=') { t.type = TOK_GE; t.len = 2; l->pos+=2; l->col+=2; }
+            if (s[l->pos+1] == '>') { t.type = TOK_SHR; t.len = 2; l->pos+=2; l->col+=2; }
+            else if (s[l->pos+1] == '=') { t.type = TOK_GE; t.len = 2; l->pos+=2; l->col+=2; }
             else { t.type = TOK_GT; l->pos++; l->col++; }
             break;
         case '-':
@@ -251,7 +281,8 @@ Token lexer_next(Lexer *l) {
             else { t.type = TOK_PLUS; l->pos++; l->col++; }
             break;
         case '*':
-            if (s[l->pos+1] == '=') { t.type = TOK_STAREQ; t.len = 2; l->pos+=2; l->col+=2; }
+            if (s[l->pos+1] == '*') { t.type = TOK_STARSTAR; t.len = 2; l->pos+=2; l->col+=2; }
+            else if (s[l->pos+1] == '=') { t.type = TOK_STAREQ; t.len = 2; l->pos+=2; l->col+=2; }
             else { t.type = TOK_STAR; l->pos++; l->col++; }
             break;
         case '/':
@@ -271,13 +302,17 @@ Token lexer_next(Lexer *l) {
         case ':': t.type = TOK_COLON; l->pos++; l->col++; break;
         case '&':
             if (s[l->pos+1] == '&') { t.type = TOK_AND; t.len = 2; l->pos+=2; l->col+=2; }
-            else { l->pos++; l->col++; continue; }
+            else { t.type = TOK_BITAND; l->pos++; l->col++; }
             break;
         case '|':
             if (s[l->pos+1] == '|') { t.type = TOK_OR; t.len = 2; l->pos+=2; l->col+=2; }
             else if (s[l->pos+1] == '>') { t.type = TOK_PIPE; t.len = 2; l->pos+=2; l->col+=2; }
-            else { l->pos++; l->col++; continue; }
+            else { t.type = TOK_BITOR; l->pos++; l->col++; }
             break;
+        case '^':
+            t.type = TOK_BITXOR; l->pos++; l->col++; break;
+        case '~':
+            t.type = TOK_NOT; l->pos++; l->col++; break;
         default: l->pos++; l->col++; continue;
         }
         return t;

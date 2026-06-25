@@ -4,14 +4,18 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdarg.h>
 
 #define MAX_VARS 256
 
 typedef enum { VS_ALIVE, VS_MOVED, VS_BORROWED, VS_MUT_BORROWED } VarState;
 
+typedef enum { TYPE_UNKNOWN, TYPE_I64, TYPE_BOOL, TYPE_STR, TYPE_STRUCT } ValType;
+
 typedef struct {
     char name[64];
     VarState state;
+    ValType type;
     size_t decl_line;
     size_t decl_col;
 } VarEntry;
@@ -36,14 +40,23 @@ static int find_var(CheckCtx *c, const char *name) {
     return -1;
 }
 
-static int add_var(CheckCtx *c, const char *name, size_t line, size_t col) {
+static int add_var(CheckCtx *c, const char *name, ValType type, size_t line, size_t col) {
     if (c->count >= MAX_VARS) return -1;
     strncpy(c->vars[c->count].name, name, 63);
     c->vars[c->count].name[63] = 0;
     c->vars[c->count].state = VS_ALIVE;
+    c->vars[c->count].type = type;
     c->vars[c->count].decl_line = line;
     c->vars[c->count].decl_col = col;
     return c->count++;
+}
+
+static ValType get_type_for_name(const char *name) {
+    if (!name) return TYPE_UNKNOWN;
+    if (strcmp(name, "i64") == 0 || strcmp(name, "i32") == 0 || strcmp(name, "i8") == 0) return TYPE_I64;
+    if (strcmp(name, "bool") == 0) return TYPE_BOOL;
+    if (strcmp(name, "str") == 0 || strcmp(name, "String") == 0) return TYPE_STR;
+    return TYPE_UNKNOWN;
 }
 
 static void check_expr(CheckCtx *c, Node *n);
@@ -59,11 +72,17 @@ static void check_expr(CheckCtx *c, Node *n) {
         if (c->vars[idx].state == VS_MOVED) {
             char buf[256];
             snprintf(buf, sizeof(buf), "use of moved value `%s`", n->ident);
-            diag_add(c->diag, 1001, SEV_ERROR, 0, 0, 1, buf);
+            diag_add(c->diag, 1001, SEV_ERROR, n->src_line, n->src_col, 1, buf);
         }
         break;
     }
-    case NODE_INT: case NODE_BOOL: case NODE_STR:
+    case NODE_INT:
+        break;
+    case NODE_FLOAT:
+        break;
+    case NODE_BOOL:
+        break;
+    case NODE_STR:
         break;
     case NODE_UNARY:
         check_expr(c, n->unary.operand);
@@ -79,7 +98,7 @@ static void check_expr(CheckCtx *c, Node *n) {
                 if (strcmp(n->call.callee->ident, impure[i]) == 0) {
                     char buf[256];
                     snprintf(buf, sizeof(buf), "call to impure function `%s` in pure function (add `effect`)", impure[i]);
-                    diag_add(c->diag, 1003, SEV_WARN, 0, 0, 1, buf);
+                    diag_add(c->diag, 1003, SEV_WARN, n->src_line, n->src_col, 1, buf);
                     break;
                 }
             }
@@ -102,6 +121,16 @@ static void check_expr(CheckCtx *c, Node *n) {
         if (n->comp.iter_end) check_expr(c, n->comp.iter_end);
         if (n->comp.filter) check_expr(c, n->comp.filter);
         break;
+    case NODE_BORROW:
+    case NODE_MUT_BORROW:
+        check_expr(c, n->borrow.operand);
+        break;
+    case NODE_DEREF:
+        check_expr(c, n->borrow.operand);
+        break;
+    case NODE_ENUM_LITERAL:
+        if (n->enum_literal.payload) check_expr(c, n->enum_literal.payload);
+        break;
     default: break;
     }
 }
@@ -115,11 +144,15 @@ static void check_stmt(CheckCtx *c, Node *n) {
             check_stmt(c, s);
         break;
     case NODE_LET: {
-        add_var(c, n->let.name, 0, 0);
+        ValType vt = TYPE_UNKNOWN;
+        if (n->let.type && n->let.type->type == NODE_IDENT) {
+            vt = get_type_for_name(n->let.type->ident);
+        }
+        add_var(c, n->let.name, vt, n->src_line, n->src_col);
         if (n->let.init) {
             if (n->let.init->type == NODE_IDENT) {
                 int idx = find_var(c, n->let.init->ident);
-                if (idx >= 0 && c->vars[idx].state == VS_ALIVE) {
+                if (idx >= 0 && c->vars[idx].state == VS_ALIVE && vt == TYPE_UNKNOWN) {
                     c->vars[idx].state = VS_MOVED;
                 }
             }
@@ -133,7 +166,7 @@ static void check_stmt(CheckCtx *c, Node *n) {
             if (idx >= 0 && c->vars[idx].state == VS_MOVED) {
                 char buf[256];
                 snprintf(buf, sizeof(buf), "cannot assign to moved variable `%s`", n->assign.lhs->ident);
-                diag_add(c->diag, 1002, SEV_ERROR, 0, 0, 1, buf);
+                diag_add(c->diag, 1002, SEV_ERROR, n->src_line, n->src_col, 1, buf);
             }
         }
         check_expr(c, n->assign.lhs);
@@ -158,6 +191,14 @@ static void check_stmt(CheckCtx *c, Node *n) {
     case NODE_BREAK:
     case NODE_CONTINUE:
         break;
+    case NODE_MATCH:
+        check_expr(c, n->match.expr);
+        for (Node *arm = n->match.arms; arm; arm = arm->next) {
+            if (arm->match_arm.payload) check_expr(c, arm->match_arm.payload);
+            if (arm->match_arm.guard) check_expr(c, arm->match_arm.guard);
+            check_stmt(c, arm->match_arm.body);
+        }
+        break;
     default: break;
     }
 }
@@ -170,8 +211,13 @@ void check_program(Node *prog, Diag *diag, const char *source) {
         if (item->type == NODE_FN_DECL) {
             ctx.has_effect = item->fn.effect;
             for (Node *p = item->fn.params; p; p = p->next) {
-                if (p->type == NODE_LET && p->let.name)
-                    add_var(&ctx, p->let.name, 0, 0);
+                if (p->type == NODE_LET && p->let.name) {
+                    ValType vt = TYPE_UNKNOWN;
+                    if (p->let.type && p->let.type->type == NODE_IDENT) {
+                        vt = get_type_for_name(p->let.type->ident);
+                    }
+                    add_var(&ctx, p->let.name, vt, p->src_line, p->src_col);
+                }
             }
             check_stmt(&ctx, item->fn.body);
         }
