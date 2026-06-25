@@ -176,8 +176,8 @@ static void emit_print_int(Codegen *c) {
     emit(c, "  mov byte ptr [rsi], dl\n  cmp rax, 0\n");
     emit(c, "  jne .L_print_loop_%d\n", lbl);
     emit(c, ".L_print_done_%d:\n", lbl);
-    emit(c, "  xor rdx, rdx\n  lea rbx, [rbp-40]\n  add rbx, 19\n");
-    emit(c, "  sub rbx, rsi\n  mov rdx, rbx\n");
+    emit(c, "  lea r10, [rbp-40]\n  add r10, 19\n");
+    emit(c, "  sub r10, rsi\n  mov rdx, r10\n");
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
     emit(c, "  mov byte ptr [rbp-48], 10\n");
     emit(c, "  mov rdi, 1\n  lea rsi, [rbp-48]\n  mov rdx, 1\n  mov rax, 1\n  syscall\n");
@@ -575,6 +575,8 @@ static void emit_string_concat(Codegen *c) {
     emit(c, "  mov byte ptr [rdi], 0\n");
     emit(c, "  mov rax, rbx\n");
     emit(c, "  add rsp, 32\n  pop r13\n  pop r12\n  pop rbx\n  pop rbp\n  ret\n");
+    /* __string_concat alias for str + str lowering */
+    emit(c, ".globl __string_concat\n.set __string_concat, string_concat\n");
 }
 
 static void gen_expr(Codegen *c, Node *n);
@@ -731,6 +733,7 @@ static void gen_expr(Codegen *c, Node *n) {
         int L = new_label(c);
         int var_off = -1;
         int end_off = -1;
+        int idx_off = -1;
         if (n->comp.var) {
             var_off = sym_find(&c->sym, n->comp.var);
             if (var_off < 0) var_off = sym_add(&c->sym, n->comp.var);
@@ -741,21 +744,35 @@ static void gen_expr(Codegen *c, Node *n) {
         if (var_off < 0) { emit(c, "  xor rax, rax\n"); break; }
         emit(c, "  push r12\n  push rbx\n");
         gen_expr(c, n->comp.iter);
-        emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off);
         Node *end = n->comp.iter_end;
         if (!end) {
-            emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
-            emit(c, "  inc rax\n");
+            /* container iteration: iter returns ptr to {count, elem0, elem1, ...} */
+            idx_off = c->sym.stack_size + 8;
+            c->sym.stack_size += 8;
+            emit(c, "  mov rbx, rax\n");
+            emit(c, "  mov rax, qword ptr [rbx]\n");
             emit(c, "  mov qword ptr [rbp - %d], rax\n", end_off);
+            emit(c, "  mov qword ptr [rbp - %d], 0\n", idx_off);
         } else {
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off);
             gen_expr(c, end);
             emit(c, "  mov qword ptr [rbp - %d], rax\n", end_off);
         }
         emit(c, "  xor r12, r12\n");
         emit(c, ".L_comp_loop_%d:\n", L);
-        emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
+        if (end) {
+            emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
+        } else {
+            emit(c, "  mov rax, qword ptr [rbp - %d]\n", idx_off);
+        }
         emit(c, "  mov rcx, qword ptr [rbp - %d]\n", end_off);
         emit(c, "  cmp rax, rcx\n  jge .L_comp_done_%d\n", L);
+        if (!end) {
+            emit(c, "  mov rax, qword ptr [rbp - %d]\n", idx_off);
+            emit(c, "  shl rax, 3\n  add rax, rbx\n");
+            emit(c, "  mov rax, qword ptr [rax + 8]\n");
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off);
+        }
         if (n->comp.filter) {
             gen_expr(c, n->comp.filter);
             emit(c, "  test rax, rax\n  je .L_comp_skip_%d\n", L);
@@ -764,10 +781,20 @@ static void gen_expr(Codegen *c, Node *n) {
         emit(c, "  mov rdi, rax\n  call print_int\n");
         emit(c, "  inc r12\n");
         if (n->comp.filter) emit(c, ".L_comp_skip_%d:\n", L);
-        emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
-        emit(c, "  inc rax\n  mov qword ptr [rbp - %d], rax\n", var_off);
+        if (end) {
+            emit(c, "  mov rax, qword ptr [rbp - %d]\n", var_off);
+        } else {
+            emit(c, "  mov rax, qword ptr [rbp - %d]\n", idx_off);
+        }
+        emit(c, "  inc rax\n");
+        if (end) {
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", var_off);
+        } else {
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", idx_off);
+        }
         emit(c, "  jmp .L_comp_loop_%d\n", L);
         emit(c, ".L_comp_done_%d:\n", L);
+        if (!end) emit(c, "  xor rbx, rbx\n");
         emit(c, "  mov rax, r12\n  pop rbx\n  pop r12\n");
         break;
     }
@@ -1151,6 +1178,7 @@ static void gen_fn(Codegen *c, Node *n) {
     int frame = c->sym.stack_size;
     if (frame > 0) { frame = (frame + 15) & ~15; emit(c, "  sub rsp, %d\n", frame); }
     memcpy(&c->sym, &tmp, sizeof(tmp));
+    fflush(stderr);
     reg_idx = 0;
     for (Node *p = n->fn.params; p; p = p->next) {
         if (p->type == NODE_LET && p->let.name) {

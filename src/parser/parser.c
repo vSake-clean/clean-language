@@ -933,9 +933,21 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
         if (op < 0) break;
         next(p);
         Node *right = parse_expr_prec(p, (Precedence)(prec + 1));
-        Node *bin = node_new(NODE_BINARY);
-        bin->binary.left = left; bin->binary.right = right; bin->binary.op = op;
-        left = bin;
+        /* string concatenation: lower str + str to __string_concat call */
+        if (op == 0 && (left->type == NODE_STR || right->type == NODE_STR)) {
+            Node *call = node_new(NODE_CALL);
+            call->call.callee = node_new(NODE_IDENT);
+            call->call.callee->ident = strdup("__string_concat");
+            call->call.args = NULL;
+            Node **tail = &call->call.args;
+            *tail = left; tail = &(*tail)->next;
+            *tail = right;
+            left = call;
+        } else {
+            Node *bin = node_new(NODE_BINARY);
+            bin->binary.left = left; bin->binary.right = right; bin->binary.op = op;
+            left = bin;
+        }
     }
     return left;
 }
@@ -951,6 +963,7 @@ Node *parser_parse(Parser *p) {
         if (t.type == TOK_EOF) break;
         if (t.type == TOK_NEWLINE) { next(p); continue; }
         if (t.type == TOK_DEDENT) { next(p); continue; }
+        if (t.type == TOK_PUB || t.type == TOK_UNSAFE) { next(p); continue; }
         Node *item = parse_item(p);
         if (item) { *tail = item; tail = &item->next; }
     }
