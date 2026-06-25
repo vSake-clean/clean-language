@@ -41,6 +41,7 @@ typedef struct {
     char names[MAX_VARS][64];
     int offsets[MAX_VARS];
     int struct_idx[MAX_VARS];
+    int is_float[MAX_VARS];
     int count;
     int stack_size;
 } SymTab;
@@ -53,6 +54,12 @@ static int sym_find(SymTab *s, const char *name) {
     return -1;
 }
 
+static int sym_find_idx(SymTab *s, const char *name) {
+    for (int i = 0; i < s->count; i++)
+        if (strcmp(s->names[i], name) == 0) return i;
+    return -1;
+}
+
 static int sym_add(SymTab *s, const char *name) {
     if (s->count >= MAX_VARS) { fprintf(stderr, "too many variables\n"); exit(1); }
     strncpy(s->names[s->count], name, 63);
@@ -60,6 +67,7 @@ static int sym_add(SymTab *s, const char *name) {
     s->stack_size += 8;
     s->offsets[s->count] = s->stack_size;
     s->struct_idx[s->count] = -1;
+    s->is_float[s->count] = 0;
     s->count++;
     return s->offsets[s->count-1];
 }
@@ -568,6 +576,30 @@ static void gen_stmt(Codegen *c, Node *n);
 static int find_cg_struct(Codegen *c, const char *name);
 static void collect_structs(Codegen *c, Node *prog);
 
+static int find_enum_variant_tag(Codegen *c, const char *variant) {
+    for (int i = 0; i < c->enum_count; i++)
+        for (int j = 0; j < c->enums[i].variant_count; j++)
+            if (strcmp(c->enums[i].variants[j], variant) == 0)
+                return j;
+    return 0; /* fallback — use arm index */
+}
+
+static int expr_is_float(SymTab *s, Node *n) {
+    if (!n) return 0;
+    switch (n->type) {
+    case NODE_FLOAT: return 1;
+    case NODE_IDENT: {
+        int idx = sym_find_idx(s, n->ident);
+        return (idx >= 0) ? s->is_float[idx] : 0;
+    }
+    case NODE_BINARY:
+        return expr_is_float(s, n->binary.left) || expr_is_float(s, n->binary.right);
+    case NODE_UNARY:
+        return expr_is_float(s, n->unary.operand);
+    default: return 0;
+    }
+}
+
 static void gen_expr(Codegen *c, Node *n) {
     if (!n) { emit(c, "  xor rax, rax\n"); return; }
     switch (n->type) {
@@ -600,9 +632,10 @@ static void gen_expr(Codegen *c, Node *n) {
         break;
     case NODE_BINARY: {
         int op = n->binary.op;
-        /* check if either operand is a float literal */
-        int is_float = (n->binary.left && n->binary.left->type == NODE_FLOAT) ||
-                       (n->binary.right && n->binary.right->type == NODE_FLOAT);
+        /* check if either operand is float (literal or variable) */
+        int is_float = (n->binary.left && n->binary.right) &&
+                        (expr_is_float(&c->sym, n->binary.left) ||
+                         expr_is_float(&c->sym, n->binary.right));
         if (is_float && op <= 3) {
             /* float arithmetic: use SSE */
             gen_expr(c, n->binary.left);
@@ -829,7 +862,12 @@ static void gen_stmt(Codegen *c, Node *n) {
             off = sym_add(&c->sym, n->let.name);
         }
         emit(c, "  mov qword ptr [rbp - %d], 0\n", off);
-        if (n->let.init) { gen_expr(c, n->let.init); emit(c, "  mov qword ptr [rbp - %d], rax\n", off); }
+        if (n->let.init) {
+            gen_expr(c, n->let.init);
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
+            int idx = sym_find_idx(&c->sym, n->let.name);
+            if (idx >= 0) c->sym.is_float[idx] = expr_is_float(&c->sym, n->let.init);
+        }
         break;
     }
     case NODE_ASSIGN: {
@@ -886,7 +924,6 @@ static void gen_stmt(Codegen *c, Node *n) {
         emit(c, "  push rax\n");  /* save matched value */
         int end_label = new_label(c);
         Node *arm = n->match.arms;
-        int arm_idx = 0;
         while (arm) {
             int next_arm = new_label(c);
             if (arm->match_arm.variant && strcmp(arm->match_arm.variant, "_") == 0) {
@@ -898,7 +935,7 @@ static void gen_stmt(Codegen *c, Node *n) {
                 /* variant with payload: check tag */
                 emit(c, "  mov rax, qword ptr [rsp]\n");  /* enum ptr */
                 emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
-                emit(c, "  cmp rax, %d\n", arm_idx);
+                emit(c, "  cmp rax, %d\n", find_enum_variant_tag(c, arm->match_arm.variant));
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
                 /* bind payload: extract at offset 8 */
                 emit(c, "  mov rax, qword ptr [rsp]\n");
@@ -910,25 +947,23 @@ static void gen_stmt(Codegen *c, Node *n) {
                 emit(c, "  add rsp, 8\n");
                 gen_stmt(c, arm->match_arm.body);
                 emit(c, "  jmp .L_match_end_%d\n", end_label);
+            } else if (arm->match_arm.variant) {
+                /* no payload — check tag */
+                emit(c, "  mov rax, qword ptr [rsp]\n");
+                emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
+                emit(c, "  cmp rax, %d\n", find_enum_variant_tag(c, arm->match_arm.variant));
+                emit(c, "  jne .L_match_arm_%d\n", next_arm);
+                emit(c, "  add rsp, 8\n");
+                gen_stmt(c, arm->match_arm.body);
+                emit(c, "  jmp .L_match_end_%d\n", end_label);
             } else {
-                /* no payload / simple match */
-                if (arm->match_arm.variant) {
-                    emit(c, "  mov rax, qword ptr [rsp]\n");
-                    if (arm->match_arm.payload) {
-                        /* bind ident */
-                        if (arm->match_arm.payload->type == NODE_IDENT) {
-                            int poff = sym_add(&c->sym, arm->match_arm.payload->ident);
-                            emit(c, "  mov qword ptr [rbp - %d], rax\n", poff);
-                        }
-                    }
-                }
+                /* fallback: no variant at all */
                 emit(c, "  add rsp, 8\n");
                 gen_stmt(c, arm->match_arm.body);
                 emit(c, "  jmp .L_match_end_%d\n", end_label);
             }
             emit(c, ".L_match_arm_%d:\n", next_arm);
             arm = arm->next;
-            arm_idx++;
         }
         /* no arm matched: fallthrough */
         emit(c, "  add rsp, 8\n");
