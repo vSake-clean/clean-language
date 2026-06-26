@@ -149,119 +149,24 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - **docs/TUTORIAL.md** — 27-section tutorial: syntax, functions, structs, comprehensions, pipe, ownership, effect, GUI, builtins, terminal, performance, 20 exercises with 10 worked examples
 - **docs/SPECIFICATION.md** — formal EBNF grammar, type system, memory model, compiler architecture, VM design, code protection
 
-## Status Overview
-
-### 🧱 System typów (specyfikuje, nie istnieje)
-| Typ/Brak | Szczegóły |
-|----------|-----------|
-| Hindley-Milner inference | Jest tylko `infer_expr_type` sprawdzające annotated typy; reszta przepuszcza |
-| i8–i128, u8–u128 | Wszystkie mapowane na TYPE_I64 (brak rozróżniania rozmiarów) |
-| f32 | Brak — tylko f64 |
-| usize/isize | Brak — tylko gołe i64 |
-| char (4B UTF-32) | `'a'` istnieje w lexerze, ale parsowane jako NODE_INT — brak osobnego typu |
-| String (owned heap) | Brak — str to goły `*u8`, bez metod |
-| Array[T; N] | Brak literałów `[1,2,3]` i typów stałych |
-| Slice[T] | `&[T]` / `&mut [T]` — brak |
-| Ptr[T] / MutPtr[T] | Brak |
-| () unit | Brak |
-| Trait dispatch | `trait` się parsuje, ale metody nie są dispatchowane |
-| Generyki / monomorfizacja | `<T>` parsowane, ale payload zawsze 8B — bool w enumie zajmuje 8B |
-| Self keyword | Brak |
-| where clauses | Brak |
-| type aliases | Brak |
-| Coercje | `&T` → `&U`, array decay — brak |
-
-### ⌨️ Składnia — sparsowane, ale bez efektu
-| Feature | Status |
-|---------|--------|
-| `pub` | Parsowane, cicho pomijane (parser.c:1051) |
-| `unsafe` | Parsowane, cicho pomijane |
-| `effect` | Tylko warning przy impure call w pure fn — brak enforce |
-| `extern` | Tylko top-level — nie może być wewnątrz funkcji |
-| `move` | W lexerze, w parserze, w codegen jako op=3 — no-op |
-| `ref` / `mut_ref` | Tworzą NODE_BORROW/NODE_MUT_BORROW — ale borrow checker nie istnieje |
-| `as` | Brak w lexerze |
-| Lambda `fn(…) …` | Brak w parserze |
-| `?.` operator | Brak w lexerze/parserze |
-| Struct pattern `Foo{x}` | Brak — tylko `Foo(x)` |
-| Default params `x: T = val` | `=` w parametrach nieobsługiwany |
-| `@memoize` / `@lazy` | Brak |
-| `unsafe` block | Brak |
-
-### 🔧 Pipeline — całe fazy nie istnieją
-| Faza (wg spec) | Status |
-|----------------|--------|
-| Name resolution (`src/resolve/`) | Nie istnieje |
-| MIR (`src/mir/`) | Nie istnieje |
-| LIR (`src/lir/`) | Nie istnieje |
-| Register allocation (Linear Scan) | Nie istnieje — wszystko na stacku (2× wolniej niż C -O0) |
-| Optymalizacje (constant folding, DCE, inlining) | Nie istnieją |
-| AArch64 backend | Nie istnieje |
-| Arena allocator (`src/arena.c`) | Nie istnieje — używa malloc dla każdego Node |
-| Span (poprawne location tracking) | Wiele `diag_add(0,0,1)` zamiast rzeczywistych linii/kolumn |
-
-### ☕ Bytecode VM (`src/vm/`) — nie istnieje
-Specyfikacja (section 14) opisuje:
-- Format `.clb` (magic, const pool, instruction stream)
-- 30+ opcode'ów stack-based VM
-- Szyfrowanie XOR
-- Cache w `~/.cache/clean/`
-- Interpreter w C
-
-Nic z tego nie istnieje.
-
-### 🕵️ Obfuskacja (`src/obfus/`) — nie istnieje
-Specyfikacja opisuje:
-- Symbol mangling
-- Constant hiding (XOR stringów)
-- Control flow flattening
-- `--obfuscate` flag, `clean build --obfuscate`
-
-Nic z tego nie istnieje.
-
-### 🧪 Tooling — nie istnieje
-| Narzędzie | Wg spec | Rzeczywistość |
-|-----------|---------|---------------|
-| `clean check` | typecheck-only | Brak — tylko run/build |
-| `clean ast dump` | JSON AST | Brak |
-| `clean mir dump` | MIR dump | Brak |
-| `clean cache` | clear | Brak |
-| REPL | Brak w spec, ale logiczny | Brak |
-| LSP | Brak w spec | Brak |
-| Formatter | Brak w spec | Brak |
-| Test framework | Brak w spec | Brak — testy ręczne `clean run examples/features.cl` |
-| Package manager | Brak w spec | Brak |
-| DWARF debug info | "v0.2" | Brak |
-
-### 📚 Standard library (`lib/prelude.cl`) — stuby
-- `trait Ord` — istnieje deklaracja, zero implementacji
-- `trait Display` — istnieje deklaracja, zero implementacji
-- `trait Clone` — istnieje deklaracja, zero implementacji
-- `trait Drop` — istnieje deklaracja, zero implementacji
-- `enum Option<T>` — komentarz: "monomorphization not implemented"
-- `enum Result<T,E>` — j.w.
-
-### 🐛 Znane problemy
-- `:` po `while`/`if`/`fn` opcjonalny (brak błędu)
-- Struct field resolution szuka po nazwie we wszystkich structach — kolizje dają zły offset
-- Comprehensions tylko `start..end`, zawsze `print_int`
-- GC leakuje cross-function heap transfers
-- `print_str` nie dodaje `\n`
-- `clean run` zawsze zwraca 0
-- `calc_expr` ~256 linii asm (maintainability hell)
-- Match arm payload load zawsze 8-bajtowy
-
-### 📊 Podsumowanie liczbowo
-| Obszar | Wg spec | Działa | % |
-|--------|---------|--------|---|
-| Lexer | ~40 tokenów | ~38 | 95% |
-| Parser | ~30 konstrukcji | ~22 | 73% |
-| Type checker | HM + generyki + traits | podstawowy | ~15% |
-| Codegen | MIR→LIR→regalloc→x64/A64 | AST→asm x64 | ~25% |
-| VM | 30 instr + encrypt + cache | 0 | 0% |
-| Obfuskacja | mangle + const_hide + CFG | 0 | 0% |
-| Tooling | check/ast/mir/cache | run/build | ~20% |
-| Stdlib | Option/Result/traits/methods | 4 trait stubs | ~5% |
+## Known Limitations
+- `:` after `while`/`if`/`fn` is optional (no error if missing)
+- Variables stay on stack (no register optimization) — 7.3s vs 3.6s C -O0 for 1B count
+- `extern` only at top level (not inside functions)
+- No strings (`*u8`, `usize`, etc.), no types beyond `i32`/`i64`/`str`/`bool`/float
+- Struct field resolution is by name search across ALL structs (ambiguous field names may resolve incorrectly)
+- Some `diag_add` calls pass `0,0,1` as location (needs token position)
+- The token under the caret in error output may be misaligned if the line has tabs or Unicode
+- List comprehensions always use print_int (no pure iteration yet)
+- `assert` uses abort(1) — no custom assertion message
+- Comprehensions only support range-based iteration (start..end), not arbitrary iterables
+- Enum type parameters (`Option<T>`) parsed but monomorphization partial — payloads still 8-byte aligned (bool size not yet 1 byte in match arms)
+- No channels, green threads, or async support yet
+- `@memoize`, `@lazy` annotations not yet implemented
+- GC: scope-based free for local heap vars, but cross-function heap transfers may still leak
+- `calc_expr` builtin has ~256 lines of hand-written assembly (maintainability issue)
+- No `\n` after `print_str` output (no newline appended)
+- `clean run` exit code is ignored (always returns 0 to shell)
 
 ## Recent Changes (2024-06-25)
 - **Type checker** (`check.c`): `infer_expr_type()` walks AST to determine ValType of any expression. `check_stmt` compares declared vs inferred types for `let`, `assign`, `return`. Error code E1004 ("type mismatch"). Currently checks annotated types only; untyped variables pass without error.
