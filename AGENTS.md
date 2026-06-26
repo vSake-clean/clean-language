@@ -160,7 +160,20 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - List comprehensions always use print_int (no pure iteration yet)
 - `assert` uses abort(1) — no custom assertion message
 - Comprehensions only support range-based iteration (start..end), not arbitrary iterables
-- Enum type parameters (`Option<T>`) parsed but monomorphization partial — payloads still 8-byte aligned (bool size not yet 1 byte in match arms)
+- Type inference (HM) — podstawowy type checker istnieje, ale bez pełnej inferencji Hindley-Milner
+- MIR / LIR pipeline — nie istnieje (bezpośrednio AST → x86-64 asm)
+- Register allocation — wszystko na stacku (brak alokacji rejestrów)
+- Borrow checker — jest tylko ownership (Alive/Moved), brak borrow checker
+- Bytecode VM — nie istnieje
+- Obfuskacja — nie istnieje
+- AArch64 backend — nie istnieje (tylko x86-64)
+- Trait dispatch — tylko deklaracje, brak implementacji dispatchu
+- Importy / use — nie istnieją (prelude jest prependowane, nie importowane)
+- `pub` — parsowane, cicho pomijane
+- `move` — no-op w codegen (marker dla przyszłego borrow checkera)
+- Dopełniające typy: i8–i128, u8–u128, f32, usize, String, Array[T;N], Slice[T], char (typ, nie tylko literał)
+- Optymalizacje (constant folding, DCE, inlining)
+- Tooling (LSP, formatter, REPL, test runner, `clean check`, `clean ast`, DWARF)
 - No channels, green threads, or async support yet
 - `@memoize`, `@lazy` annotations not yet implemented
 - GC: scope-based free for local heap vars, but cross-function heap transfers may still leak
