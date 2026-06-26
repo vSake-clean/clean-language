@@ -3,7 +3,7 @@ enum Color:
     Green
     Blue
 
-fn main() effect -> i32
+fn main() effect -> i32:
     let x = 42
     let y = 10
     print_int(x + y)
@@ -20,16 +20,16 @@ fn main() effect -> i32
     print_int(a or b)
     print_int(not a)
     let c = Color(Green)
-    match c
-        Red
+    match c:
+        Red:
             print_int(0)
-        Green
+        Green:
             print_int(1)
-        Blue
+        Blue:
             print_int(2)
     let r = &x
     print_int(*r)
-    for i in 1..3
+    for i in 1..3:
         print_int(i)
     let s = "hello"
     print_str(s, 5)

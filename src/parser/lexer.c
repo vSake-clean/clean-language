@@ -427,6 +427,10 @@ Token lexer_next(Lexer *l) {
             t.type = TOK_BITXOR; l->pos++; l->col++; break;
         case '~':
             t.type = TOK_BITNOT; l->pos++; l->col++; break;
+        case '?':
+            if (s[l->pos+1] == '.') { t.type = TOK_DOTQUESTION; t.len = 2; l->pos+=2; l->col+=2; }
+            else { t.type = TOK_DOTQUESTION; l->pos++; l->col++; t.len = 1; }
+            break;
         default: l->pos++; l->col++; continue;
         }
         return t;

@@ -37,6 +37,7 @@ typedef enum {
     NODE_DEREF,
     NODE_TRAIT_DECL,
     NODE_IMPL_BLOCK,
+    NODE_NULLSAFE,
 } NodeType;
 
 typedef struct Node {
@@ -44,6 +45,7 @@ typedef struct Node {
     struct Node *next;
     size_t src_line;
     size_t src_col;
+    int char_flag;
     union {
         struct { char *name; struct Node *params; struct Node *ret_type; struct Node *body; int effect; int pub; } fn;
         struct { char *name; struct Node *params; struct Node *ret_type; int pub; } ext;

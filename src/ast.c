@@ -67,6 +67,7 @@ void node_free(Node *n) {
         node_free(n->unary.operand);
         break;
     case NODE_INDEX:
+    case NODE_NULLSAFE:
         node_free(n->index_expr.obj);
         node_free(n->index_expr.index);
         break;

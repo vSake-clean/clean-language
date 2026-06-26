@@ -53,6 +53,14 @@ static int match(Parser *p, TokenType type) {
     return 0;
 }
 
+static int require_colon(Parser *p) {
+    if (match(p, TOK_COLON)) return 1;
+    Token pk = peek(p);
+    diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':'");
+    p->error_count++;
+    return 0;
+}
+
 static Token consume(Parser *p, TokenType type, const char *what) {
     Token t = next(p);
     if (t.type != type) {
@@ -158,7 +166,11 @@ static Node *parse_item(Parser *p, int is_pub) {
         n->fn.ret_type = NULL;
         n->fn.effect = match(p, TOK_EFFECT);
         if (match(p, TOK_ARROW)) n->fn.ret_type = parse_type(p);
-        if (peek(p).type == TOK_COLON) next(p);
+        if (!match(p, TOK_COLON)) {
+            Token pk = peek(p);
+            diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after function signature");
+            p->error_count++;
+        }
         if (!match(p, TOK_NEWLINE)) {
             n->fn.body = node_new(NODE_BLOCK);
             Node **tail = &n->fn.body->block.stmts;
@@ -198,7 +210,11 @@ static Node *parse_item(Parser *p, int is_pub) {
         n->src_line = t.line; n->src_col = t.col;
         n->struct_decl.fields = NULL;
         Node **tail = &n->struct_decl.fields;
-        if (peek(p).type == TOK_COLON) next(p);
+        if (!match(p, TOK_COLON)) {
+            Token pk = peek(p);
+            diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after struct name");
+            p->error_count++;
+        }
         if (peek(p).type == TOK_NEWLINE) {
             next(p);
             if (peek(p).type == TOK_INDENT) {
@@ -270,7 +286,11 @@ static Node *parse_item(Parser *p, int is_pub) {
         }
         n->enum_decl.variants = NULL;
         Node **tail = &n->enum_decl.variants;
-        if (peek(p).type == TOK_COLON) next(p);
+        if (!match(p, TOK_COLON)) {
+            Token pk = peek(p);
+            diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after enum name");
+            p->error_count++;
+        }
         if (peek(p).type == TOK_NEWLINE) next(p);
         if (peek(p).type == TOK_INDENT) {
             next(p);
@@ -333,7 +353,11 @@ static Node *parse_item(Parser *p, int is_pub) {
         n->trait_decl.type_params = NULL;
         n->trait_decl.methods = NULL;
         n->src_line = t.line; n->src_col = t.col;
-        if (match(p, TOK_COLON)) {}
+        if (!match(p, TOK_COLON)) {
+            Token pk = peek(p);
+            diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after trait name");
+            p->error_count++;
+        }
         if (peek(p).type == TOK_NEWLINE) next(p);
         if (peek(p).type == TOK_INDENT) {
             next(p);
@@ -374,7 +398,7 @@ static Node *parse_item(Parser *p, int is_pub) {
         }
         n->src_line = t.line; n->src_col = t.col;
         n->impl_block.methods = NULL;
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         if (peek(p).type == TOK_INDENT) {
             next(p);
@@ -391,7 +415,7 @@ static Node *parse_item(Parser *p, int is_pub) {
                     method->fn.ret_type = NULL;
                     method->fn.effect = match(p, TOK_EFFECT);
                     if (match(p, TOK_ARROW)) method->fn.ret_type = parse_type(p);
-                    if (peek(p).type == TOK_COLON) next(p);
+                    require_colon(p);
                     if (!match(p, TOK_NEWLINE)) {
                         method->fn.body = node_new(NODE_BLOCK);
                         Node **tail = &method->fn.body->block.stmts;
@@ -445,7 +469,7 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
         Token name = consume(p, TOK_IDENT, "expected variable name after 'use'");
         consume(p, TOK_EQ, "expected '=' after variable name");
         Node *init = parse_expr(p);
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         Node *body = parse_block(p);
         Node *let_n = node_new(NODE_LET);
@@ -467,7 +491,7 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
         n->match.expr = expr;
         n->match.arms = NULL;
         n->src_line = t.line; n->src_col = t.col;
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         if (peek(p).type == TOK_INDENT) {
             next(p);
@@ -518,7 +542,11 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
                     if (peek(p).type == TOK_GT) next(p);
                 }
                 if (match(p, TOK_ARROW)) {}
-                if (match(p, TOK_COLON)) {}
+                if (!match(p, TOK_COLON)) {
+                    Token pk = peek(p);
+                    diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after match arm pattern");
+                    p->error_count++;
+                }
                 /* if guard */
                 if (match(p, TOK_IF)) {
                     arm->match_arm.guard = parse_expr(p);
@@ -546,7 +574,7 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
         Node *n = node_new(NODE_IF);
         n->if_stmt.cond = parse_expr(p);
         n->src_line = t.line; n->src_col = t.col;
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         n->if_stmt.then = parse_block(p);
         n->if_stmt.otherwise = NULL;
@@ -555,14 +583,14 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
             next(p);
             Node *elif = node_new(NODE_IF);
             elif->if_stmt.cond = parse_expr(p);
-            if (peek(p).type == TOK_COLON) next(p);
+            require_colon(p);
             if (peek(p).type == TOK_NEWLINE) next(p);
             elif->if_stmt.then = parse_block(p);
             elif->if_stmt.otherwise = NULL;
             *tail = elif; tail = &elif->if_stmt.otherwise;
         }
         if (match(p, TOK_ELSE)) {
-            if (peek(p).type == TOK_COLON) next(p);
+            require_colon(p);
             if (peek(p).type == TOK_NEWLINE) next(p);
             *tail = parse_block(p);
         }
@@ -574,7 +602,7 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
         Node *n = node_new(NODE_WHILE);
         n->while_stmt.cond = parse_expr(p);
         n->src_line = t.line; n->src_col = t.col;
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         n->while_stmt.body = parse_block(p);
         if (consume_nl) while (peek(p).type == TOK_NEWLINE) next(p);
@@ -596,7 +624,7 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
             p->error_count++;
             end = node_new(NODE_INT); end->int_val = 0;
         }
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         Node *body = parse_block(p);
         Node *inc_lhs = node_new(NODE_IDENT); inc_lhs->ident = strdup(var_name);
@@ -631,7 +659,11 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
     }
     case TOK_UNSAFE: {
         next(p);
-        if (match(p, TOK_COLON)) {}
+        if (!match(p, TOK_COLON)) {
+            Token pk = peek(p);
+            diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after 'unsafe'");
+            p->error_count++;
+        }
         if (peek(p).type == TOK_NEWLINE) {
             next(p);
             Node *block = parse_block(p);
@@ -854,6 +886,7 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
     case TOK_CHAR:
         next(p); left = node_new(NODE_INT);
         left->int_val = t.int_val;
+        left->char_flag = 1;
         left->src_line = t.line; left->src_col = t.col;
         break;
     case TOK_TRUE: next(p); left = node_new(NODE_BOOL); left->bool_val = 1; left->src_line = t.line; left->src_col = t.col; break;
@@ -935,7 +968,7 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
         fn->fn.ret_type = NULL;
         fn->fn.effect = 0;
         if (match(p, TOK_ARROW)) fn->fn.ret_type = parse_type(p);
-        if (peek(p).type == TOK_COLON) next(p);
+        require_colon(p);
         if (peek(p).type == TOK_NEWLINE) {
             next(p);
             fn->fn.body = parse_block(p);
@@ -1072,6 +1105,14 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
             idx->index_expr.index = node_new(NODE_IDENT);
             idx->index_expr.index->ident = field.text; field.text = NULL;
             left = idx;
+        } else if (n.type == TOK_DOTQUESTION) {
+            next(p);
+            Token field = consume(p, TOK_IDENT, "expected field name after '?.'");
+            Node *ns = node_new(NODE_NULLSAFE);
+            ns->index_expr.obj = left;
+            ns->index_expr.index = node_new(NODE_IDENT);
+            ns->index_expr.index->ident = field.text; field.text = NULL;
+            left = ns;
         } else break;
     }
 

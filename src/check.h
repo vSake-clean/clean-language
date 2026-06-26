@@ -5,7 +5,7 @@
 #include "diag.h"
 
 typedef enum {
-    TYPE_UNKNOWN, TYPE_I64, TYPE_BOOL, TYPE_STR, TYPE_FLOAT, TYPE_VOID
+    TYPE_UNKNOWN, TYPE_I64, TYPE_BOOL, TYPE_STR, TYPE_FLOAT, TYPE_VOID, TYPE_CHAR
 } ValType;
 
 const char *valtype_str(ValType t);

@@ -123,7 +123,17 @@ static int compile(const char *source_file, const char *output_file, int run_it,
         codegen_compile(prog, source_file, output_file, &diag, rt_path);
     }
     if (run_it) {
-        codegen_run(prog, source_file, &diag, rt_path, prog_argc, prog_argv);
+        int run_result = codegen_run(prog, source_file, &diag, rt_path, prog_argc, prog_argv);
+        if (diag_has_errors(&diag)) {
+            diag_print_all(&diag);
+            node_free(prog); free(source); parser_free(&parser); diag_free(&diag);
+            return run_result ? run_result : 1;
+        }
+        node_free(prog);
+        free(source);
+        parser_free(&parser);
+        diag_free(&diag);
+        return run_result;
     }
 
     if (diag_has_errors(&diag)) {

@@ -235,6 +235,9 @@ static void emit_print_str(Codegen *c) {
     emit(c, "  push rbp\n  mov rbp, rsp\n");
     emit(c, "  mov rdx, rsi\n  mov rsi, rdi\n");
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
+    emit(c, "  push 10\n  mov rsi, rsp\n");
+    emit(c, "  mov rdi, 1\n  mov rdx, 1\n  mov rax, 1\n  syscall\n");
+    emit(c, "  pop rax\n");
     emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
 }
 
@@ -903,6 +906,36 @@ static void gen_expr(Codegen *c, Node *n) {
         }
         break;
     }
+    case NODE_NULLSAFE: {
+        int L = new_label(c);
+        gen_expr(c, n->index_expr.obj);
+        emit(c, "  test rax, rax\n");
+        emit(c, "  jz .L_nullsafe_%d\n", L);
+        emit(c, "  push rax\n");
+        if (n->index_expr.index->type == NODE_IDENT) {
+            const char *field = n->index_expr.index->ident;
+            int found = 0;
+            for (int si = 0; si < c->struct_count && !found; si++) {
+                for (int j = 0; j < c->structs[si].field_count; j++) {
+                    if (strcmp(c->structs[si].fields[j], field) == 0) {
+                        emit(c, "  pop rax\n");
+                        emit(c, "  mov rax, qword ptr [rax + %d]\n", c->structs[si].offsets[j]);
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                emit(c, "  pop rax\n");
+                emit(c, "  xor rax, rax\n");
+            }
+        } else {
+            emit(c, "  pop rax\n");
+            emit(c, "  xor rax, rax\n");
+        }
+        emit(c, ".L_nullsafe_%d:\n", L);
+        break;
+    }
     case NODE_BORROW:
     case NODE_MUT_BORROW: {
         if (n->borrow.operand->type == NODE_IDENT) {
@@ -1127,6 +1160,7 @@ static void count_locals(SymTab *s, Node *n) {
         if (n->enum_literal.payload) count_locals(s, n->enum_literal.payload);
         break;
     case NODE_INDEX:
+    case NODE_NULLSAFE:
         count_locals(s, n->index_expr.obj);
         count_locals(s, n->index_expr.index);
         break;

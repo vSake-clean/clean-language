@@ -34,6 +34,7 @@ const char *valtype_str(ValType t) {
         case TYPE_STR: return "str";
         case TYPE_FLOAT: return "float";
         case TYPE_VOID: return "void";
+        case TYPE_CHAR: return "char";
         default: return "unknown";
     }
 }
@@ -41,7 +42,7 @@ const char *valtype_str(ValType t) {
 ValType infer_node_type(Node *n) {
     if (!n) return TYPE_VOID;
     switch (n->type) {
-        case NODE_INT: return TYPE_I64;
+        case NODE_INT: return n->char_flag ? TYPE_CHAR : TYPE_I64;
         case NODE_FLOAT: return TYPE_FLOAT;
         case NODE_BOOL: return TYPE_BOOL;
         case NODE_STR: return TYPE_STR;
@@ -81,14 +82,16 @@ ValType infer_node_type(Node *n) {
         case NODE_MUT_BORROW: return TYPE_I64; /* pointer */
         case NODE_STRUCT_LITERAL: return TYPE_UNKNOWN;
         case NODE_ENUM_LITERAL: return TYPE_UNKNOWN;
-        case NODE_INDEX: return TYPE_I64;
+        case NODE_INDEX:
+        case NODE_NULLSAFE: return TYPE_I64;
         default: return TYPE_UNKNOWN;
     }
 }
 
 int valtype_size(ValType t) {
     switch (t) {
-        case TYPE_BOOL: return 1;
+        case TYPE_BOOL:
+        case TYPE_CHAR: return 1;
         default: return 8;
     }
 }
@@ -176,6 +179,7 @@ static void check_expr(CheckCtx *c, Node *n) {
             check_expr(c, a);
         break;
     case NODE_INDEX:
+    case NODE_NULLSAFE:
         check_expr(c, n->index_expr.obj);
         check_expr(c, n->index_expr.index);
         break;
