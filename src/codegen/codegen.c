@@ -35,6 +35,8 @@ typedef struct {
     char name[64];
     char variants[MAX_CG_VARIANTS][64];
     int variant_sizes[MAX_CG_VARIANTS];
+    int payload_sizes[MAX_CG_VARIANTS][MAX_CG_FIELDS];
+    int payload_counts[MAX_CG_VARIANTS];
     int variant_count;
     int total_size;
 } CEnumDef;
@@ -596,6 +598,17 @@ static int find_enum_variant_tag(Codegen *c, const char *variant) {
     return -1; /* not found */
 }
 
+static int find_enum_payload_size(Codegen *c, const char *variant, int field_idx) {
+    for (int i = 0; i < c->enum_count; i++)
+        for (int j = 0; j < c->enums[i].variant_count; j++)
+            if (strcmp(c->enums[i].variants[j], variant) == 0) {
+                if (field_idx < c->enums[i].payload_counts[j])
+                    return c->enums[i].payload_sizes[j][field_idx];
+                return 8;
+            }
+    return 8;
+}
+
 static int expr_is_float(SymTab *s, Node *n) {
     if (!n) return 0;
     switch (n->type) {
@@ -642,7 +655,7 @@ static void gen_expr(Codegen *c, Node *n) {
         if (n->unary.op == 0) emit(c, "  test rax, rax\n  setz al\n  movzx rax, al\n");
         else if (n->unary.op == 1) emit(c, "  neg rax\n");
         else if (n->unary.op == 2) emit(c, "  not rax\n");
-        /* op 3 = move: no-op */
+        /* op 3 = move: no-op, op 4 = cast: no-op */
         break;
     case NODE_BINARY: {
         int op = n->binary.op;
@@ -832,20 +845,32 @@ static void gen_expr(Codegen *c, Node *n) {
         for (int i = 0; i < e->variant_count; i++)
             if (strcmp(e->variants[i], n->enum_literal.variant) == 0) { tag = i; break; }
         if (tag < 0) { emit(c, "  xor rax, rax\n"); break; }
-        /* compute actual payload size from expression types (monomorphization) */
-        int payload_slots = 0;
-        for (Node *p = n->enum_literal.payload; p; p = p->next) payload_slots++;
-        int alloc_size = (payload_slots + 1) * 8;
+        /* compute actual payload size + alignment */
+        int payload_total = 0;
+        int pidx = 0;
+        for (Node *p = n->enum_literal.payload; p; p = p->next) {
+            int fsize = (pidx < MAX_CG_FIELDS) ? e->payload_sizes[tag][pidx] : 8;
+            payload_total += fsize;
+            pidx++;
+        }
+        int alloc_size = payload_total + 8;
+        if (alloc_size < 8) alloc_size = 8;
         emit(c, "  mov rdi, %d\n  call malloc\n", alloc_size);
         emit(c, "  mov rbx, rax\n");
         /* store tag */
         emit(c, "  mov qword ptr [rbx], %d\n", tag);
         /* store payload(s) */
         int poff = 8;
+        pidx = 0;
         for (Node *p = n->enum_literal.payload; p; p = p->next) {
             gen_expr(c, p);
-            emit(c, "  mov qword ptr [rbx + %d], rax\n", poff);
-            poff += 8;
+            int fsize = (pidx < MAX_CG_FIELDS) ? e->payload_sizes[tag][pidx] : 8;
+            if (fsize == 1)
+                emit(c, "  mov byte ptr [rbx + %d], al\n", poff);
+            else
+                emit(c, "  mov qword ptr [rbx + %d], rax\n", poff);
+            poff += fsize;
+            pidx++;
         }
         emit(c, "  mov rax, rbx\n");
         break;
@@ -894,7 +919,7 @@ static void gen_expr(Codegen *c, Node *n) {
         emit(c, "  mov rax, qword ptr [rax]\n");
         break;
     }
-    default: emit(c, "  xor rax, rax\n"); break;
+        default: emit(c, "  xor rax, rax\n"); break;
     }
 }
 
@@ -1010,8 +1035,12 @@ static void gen_stmt(Codegen *c, Node *n) {
                 emit(c, "  cmp rax, %d\n", tag < 0 ? 0 : tag);
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
                 /* bind payload: extract at offset 8 */
+                int fsize = find_enum_payload_size(c, arm->match_arm.variant, 0);
                 emit(c, "  mov rax, qword ptr [rsp]\n");
-                emit(c, "  mov rax, qword ptr [rax + 8]\n");
+                if (fsize == 1)
+                    emit(c, "  movzx rax, byte ptr [rax + 8]\n");
+                else
+                    emit(c, "  mov rax, qword ptr [rax + 8]\n");
                 if (arm->match_arm.payload->type == NODE_IDENT) {
                     int poff = sym_add(&c->sym, arm->match_arm.payload->ident);
                     emit(c, "  mov qword ptr [rbp - %d], rax\n", poff);
@@ -1106,7 +1135,7 @@ static void count_locals(SymTab *s, Node *n) {
         count_locals(s, n->binary.right);
         break;
     case NODE_UNARY:
-        if (n->unary.operand) count_locals(s, n->unary.operand);
+        if (n->unary.operand && n->unary.op <= 4) count_locals(s, n->unary.operand);
         break;
     case NODE_BORROW:
     case NODE_MUT_BORROW:
@@ -1172,7 +1201,15 @@ static void collect_enums(Codegen *c, Node *prog) {
                 strncpy(e->variants[idx], v->match_arm.variant, 63);
                 e->variants[idx][63] = 0;
                 int payload_size = 0;
-                for (Node *pld = v->match_arm.payload; pld; pld = pld->next) payload_size += 8;
+                int pcount = 0;
+                for (Node *pld = v->match_arm.payload; pld; pld = pld->next) {
+                    int fsize = 8;
+                    if (pld->type == NODE_IDENT && strcmp(pld->ident, "bool") == 0) fsize = 1;
+                    payload_size += fsize;
+                    if (pcount < MAX_CG_FIELDS) e->payload_sizes[idx][pcount] = fsize;
+                    pcount++;
+                }
+                e->payload_counts[idx] = pcount;
                 e->variant_sizes[idx] = payload_size + 8;
                 if (e->variant_sizes[idx] > e->total_size) e->total_size = e->variant_sizes[idx];
                 e->variant_count++;

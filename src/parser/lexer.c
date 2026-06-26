@@ -23,14 +23,14 @@ static int kw_match(const char *s, TokenType *t) {
         "fn","let","mut","var","if","elif","else","while","for","in",
         "return","break","continue","match","struct","enum","trait","impl",
         "use","pub","unsafe","extern","true","false","unless","effect",
-        "move","ref","mut_ref",
+        "move","ref","mut_ref","as","Self",
         "and","or","not", NULL
     };
     static TokenType kt[] = {
         TOK_FN,TOK_LET,TOK_MUT,TOK_VAR,TOK_IF,TOK_ELIF,TOK_ELSE,TOK_WHILE,TOK_FOR,TOK_IN,
         TOK_RETURN,TOK_BREAK,TOK_CONTINUE,TOK_MATCH,TOK_STRUCT,TOK_ENUM,TOK_TRAIT,TOK_IMPL,
         TOK_USE,TOK_PUB,TOK_UNSAFE,TOK_EXTERN,TOK_TRUE,TOK_FALSE,TOK_UNLESS,TOK_EFFECT,
-        TOK_MOVE,TOK_REF,TOK_MUT_REF,
+        TOK_MOVE,TOK_REF,TOK_MUT_REF,TOK_AS,TOK_SELF,
         TOK_AND,TOK_OR,TOK_NOT
     };
     for (int i = 0; kw[i]; i++)

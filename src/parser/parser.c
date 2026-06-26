@@ -37,6 +37,9 @@ void parser_init(Parser *p, const char *filename, const char *source, Diag *diag
     p->struct_count = 0;
     p->enum_count = 0;
     p->current_type_params.count = 0;
+    p->lambda_count = 0;
+    p->lambdas = NULL;
+    p->lambdas_tail = &p->lambdas;
 }
 
 void parser_free(Parser *p) { (void)p; }
@@ -88,7 +91,25 @@ static Node *parse_block(Parser *p) {
 }
 
 static Node *parse_type(Parser *p) {
-    Token t = consume(p, TOK_IDENT, "expected type name");
+    Token t = peek(p);
+    if (t.type == TOK_SELF) {
+        next(p);
+        Node *n = node_new(NODE_IDENT);
+        n->ident = strdup("Self");
+        n->src_line = t.line; n->src_col = t.col;
+        return n;
+    }
+    if (t.type == TOK_LPAREN) {
+        Token n2 = lexer_peek(&p->lexer);
+        if (n2.type == TOK_RPAREN) {
+            next(p); next(p);
+            Node *n = node_new(NODE_IDENT);
+            n->ident = strdup("()");
+            n->src_line = t.line; n->src_col = t.col;
+            return n;
+        }
+    }
+    t = consume(p, TOK_IDENT, "expected type name");
     Node *n = node_new(NODE_IDENT);
     n->ident = t.text; t.text = NULL;
     n->src_line = t.line; n->src_col = t.col;
@@ -604,6 +625,19 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
         if (consume_nl) while (peek(p).type == TOK_NEWLINE) next(p);
         return block;
     }
+    case TOK_UNSAFE: {
+        next(p);
+        if (match(p, TOK_COLON)) {}
+        if (peek(p).type == TOK_NEWLINE) {
+            next(p);
+            Node *block = parse_block(p);
+            if (consume_nl) while (peek(p).type == TOK_NEWLINE) next(p);
+            return block;
+        }
+        Node *body = parse_stmt(p, consume_nl);
+        if (consume_nl) while (peek(p).type == TOK_NEWLINE) next(p);
+        return body;
+    }
     case TOK_BREAK: {
         next(p);
         Node *n = node_new(NODE_BREAK);
@@ -723,6 +757,7 @@ static Precedence token_prec(TokenType t) {
     case TOK_SHL: case TOK_SHR: return PREC_SHIFT;
     case TOK_PLUS: case TOK_MINUS: return PREC_ADD;
     case TOK_STAR: case TOK_SLASH: case TOK_PERCENT: return PREC_MUL;
+    case TOK_AS: return PREC_ADD;
     default: return PREC_MIN;
     }
 }
@@ -872,10 +907,54 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
         }
         break;
     }
-    case TOK_LPAREN:
-        next(p); left = parse_expr(p);
-        consume(p, TOK_RPAREN, "expected ')'");
+    case TOK_LPAREN: {
+        next(p);
+        if (peek(p).type == TOK_RPAREN) {
+            next(p);
+            left = node_new(NODE_INT);
+            left->int_val = 0;
+            left->src_line = t.line; left->src_col = t.col;
+        } else {
+            left = parse_expr(p);
+            consume(p, TOK_RPAREN, "expected ')'");
+        }
         break;
+    }
+    case TOK_FN: {
+        next(p);
+        char lambda_name[64];
+        snprintf(lambda_name, sizeof(lambda_name), ".__lambda_%d", p->lambda_count++);
+        Node *fn = node_new(NODE_FN_DECL);
+        fn->fn.name = strdup(lambda_name);
+        fn->src_line = t.line; fn->src_col = t.col;
+        fn->fn.params = parse_params(p);
+        fn->fn.ret_type = NULL;
+        fn->fn.effect = 0;
+        if (match(p, TOK_ARROW)) fn->fn.ret_type = parse_type(p);
+        if (peek(p).type == TOK_COLON) next(p);
+        if (peek(p).type == TOK_NEWLINE) {
+            next(p);
+            fn->fn.body = parse_block(p);
+        } else {
+            fn->fn.body = node_new(NODE_BLOCK);
+            Node *stmt = parse_stmt(p, 0);
+            if (stmt && stmt->type == NODE_EXPR_STMT) {
+                Node *ret = node_new(NODE_RETURN);
+                ret->ret.val = stmt->expr_stmt.expr;
+                stmt->expr_stmt.expr = NULL;
+                node_free(stmt);
+                fn->fn.body->block.stmts = ret;
+            } else {
+                fn->fn.body->block.stmts = stmt;
+            }
+        }
+        *p->lambdas_tail = fn;
+        p->lambdas_tail = &fn->next;
+        left = node_new(NODE_IDENT);
+        left->ident = strdup(lambda_name);
+        left->src_line = t.line; left->src_col = t.col;
+        break;
+    }
     default:
         diag_add(p->diag, 2004, SEV_ERROR, t.line, t.col, t.len, "expected expression");
         p->error_count++;
@@ -1014,6 +1093,17 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
             left = call;
             continue;
         }
+        if (n.type == TOK_AS) {
+            next(p);
+            Node *target = parse_type(p);
+            Node *cast = node_new(NODE_UNARY);
+            cast->unary.op = 4;
+            cast->unary.operand = left;
+            cast->src_line = n.line; cast->src_col = n.col;
+            (void)target;
+            left = cast;
+            continue;
+        }
         int op = binop_type(n.type);
         if (op < 0) break;
         next(p);
@@ -1048,9 +1138,11 @@ Node *parser_parse(Parser *p) {
         if (t.type == TOK_EOF) break;
         if (t.type == TOK_NEWLINE) { next(p); continue; }
         if (t.type == TOK_DEDENT) { next(p); continue; }
-        if (t.type == TOK_PUB || t.type == TOK_UNSAFE) { next(p); continue; }
+        if (t.type == TOK_PUB) { next(p); continue; }
         Node *item = parse_item(p);
         if (item) { *tail = item; tail = &item->next; }
     }
+    /* append lambdas to program */
+    if (p->lambdas) *tail = p->lambdas;
     return prog;
 }

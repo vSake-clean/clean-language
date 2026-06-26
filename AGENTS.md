@@ -174,7 +174,15 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - **Monomorphization foundations**: `valtype_size()` returns type byte sizes (bool=1, others=8). `infer_node_type()` + `valtype_size()` used in enum literal allocation. Match arm payload loads still at 8 bytes for now (full type tracking needs symbol table access in codegen).
 - **Parser fixes**: enum variant shorthand in `parse_expr_prec` for PascalCase names; match arm `:` separator consumed; non-PascalCase call fallthrough restored.
 
-## Recent Changes (2024-06-26)
+## Recent Changes (2024-06-26 — part 1)
 - **`'a'` char literals**: added `TOK_CHAR`, lexer handles `'a'`, `'\n'`, `'\xHH'`, `'\0'` etc. Parsed as `NODE_INT`.
 - **Hex/bin literals**: `0xFF` and `0b1010` support in lexer integer parsing. Returns `TOK_INT`.
 - **move/ref/mut_ref keywords**: added `TOK_MOVE`, `TOK_REF`, `TOK_MUT_REF` to lexer keyword table. `ref x` → `NODE_BORROW`, `mut_ref x` → `NODE_MUT_BORROW`, `move x` → `NODE_UNARY(op=3)` no-op in codegen (marker for future borrow checker).
+
+## Recent Changes (2024-06-26 — part 2: as, Self, unsafe, unit, lambda, bool enum)
+- **`as` keyword**: `x as i64` — type cast, no-op in codegen (same register representation). Added `TOK_AS` to lexer, `PREC_ADD` precedence in parser, `NODE_UNARY(op=4)` in codegen.
+- **`Self` keyword**: type reference in type position — `fn foo(x: Self)`. Added `TOK_SELF` to lexer, handled in `parse_type`.
+- **`unsafe` block**: `unsafe: body` or `unsafe { }` — wraps statements, parsed as regular block. Added `TOK_UNSAFE` handling in `parse_stmt`.
+- **Unit `()`**: empty parentheses as expression — evaluates to `NODE_INT(0)`. Handled in `parse_expr_prec` prefix section checking `(` followed by `)`.
+- **Lambda `fn(params) body`**: `let f = fn(x) x + 1` — generates unique `.__lambda_N` function, appended to program after parsing. Single-expression body auto-wrapped in `return`. Call via ident or `(fn(x) x + 1)(41)`.
+- **Bool monomorphization**: `enum Opt: Yep(bool) | Nop` — `bool` fields use 1 byte instead of 8. `CEnumDef.payload_sizes[][]` tracks per-field sizes. Enum literal allocation and match arm loading use correct byte size.

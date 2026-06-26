@@ -48,6 +48,9 @@ typedef struct {
     PEnumDef enums[MAX_PENUMS];
     int enum_count;
     TypeParamList current_type_params;
+    int lambda_count;
+    Node *lambdas;
+    Node **lambdas_tail;
 } Parser;
 
 void parser_init(Parser *p, const char *filename, const char *source, Diag *diag);
