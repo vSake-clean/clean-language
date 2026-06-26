@@ -154,6 +154,7 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - Variables stay on stack (no register optimization) — 7.3s vs 3.6s C -O0 for 1B count
 - `extern` only at top level (not inside functions)
 - No strings (`*u8`, `usize`, etc.), no types beyond `i32`/`i64`/`str`/`bool`/float
+- `pub` on non-`fn` items silently ignored (struct/enum/trait `pub` tracked but not enforced)
 - Struct field resolution is by name search across ALL structs (ambiguous field names may resolve incorrectly)
 - Some `diag_add` calls pass `0,0,1` as location (needs token position)
 - The token under the caret in error output may be misaligned if the line has tabs or Unicode
@@ -186,3 +187,5 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - **Unit `()`**: empty parentheses as expression — evaluates to `NODE_INT(0)`. Handled in `parse_expr_prec` prefix section checking `(` followed by `)`.
 - **Lambda `fn(params) body`**: `let f = fn(x) x + 1` — generates unique `.__lambda_N` function, appended to program after parsing. Single-expression body auto-wrapped in `return`. Call via ident or `(fn(x) x + 1)(41)`.
 - **Bool monomorphization**: `enum Opt: Yep(bool) | Nop` — `bool` fields use 1 byte instead of 8. `CEnumDef.payload_sizes[][]` tracks per-field sizes. Enum literal allocation and match arm loading use correct byte size.
+- **`pub` visibility**: `pub fn` emits `.globl`, non-pub fn is `.local` (module-private). `main` always pub automatically. Struct/enum/trait `pub` tracked in AST but not enforced.
+- **`move` ownership**: `move x` in ownership checker marks variable as moved (E1001 on subsequent use). Codegen is no-op (value stays in rax).
