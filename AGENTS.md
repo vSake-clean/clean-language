@@ -173,3 +173,8 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - **GC**: Replaced `brk` syscalls with `malloc`/`free` for all heap allocations (struct literals, enum literals). SymTab `is_heap[]` tracks heap-allocated variables. Scope-based free at function exit. Assignment to heap var frees old value first.
 - **Monomorphization foundations**: `valtype_size()` returns type byte sizes (bool=1, others=8). `infer_node_type()` + `valtype_size()` used in enum literal allocation. Match arm payload loads still at 8 bytes for now (full type tracking needs symbol table access in codegen).
 - **Parser fixes**: enum variant shorthand in `parse_expr_prec` for PascalCase names; match arm `:` separator consumed; non-PascalCase call fallthrough restored.
+
+## Recent Changes (2024-06-26)
+- **`'a'` char literals**: added `TOK_CHAR`, lexer handles `'a'`, `'\n'`, `'\xHH'`, `'\0'` etc. Parsed as `NODE_INT`.
+- **Hex/bin literals**: `0xFF` and `0b1010` support in lexer integer parsing. Returns `TOK_INT`.
+- **move/ref/mut_ref keywords**: added `TOK_MOVE`, `TOK_REF`, `TOK_MUT_REF` to lexer keyword table. `ref x` → `NODE_BORROW`, `mut_ref x` → `NODE_MUT_BORROW`, `move x` → `NODE_UNARY(op=3)` no-op in codegen (marker for future borrow checker).

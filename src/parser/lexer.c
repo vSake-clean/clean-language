@@ -23,12 +23,14 @@ static int kw_match(const char *s, TokenType *t) {
         "fn","let","mut","var","if","elif","else","while","for","in",
         "return","break","continue","match","struct","enum","trait","impl",
         "use","pub","unsafe","extern","true","false","unless","effect",
+        "move","ref","mut_ref",
         "and","or","not", NULL
     };
     static TokenType kt[] = {
         TOK_FN,TOK_LET,TOK_MUT,TOK_VAR,TOK_IF,TOK_ELIF,TOK_ELSE,TOK_WHILE,TOK_FOR,TOK_IN,
         TOK_RETURN,TOK_BREAK,TOK_CONTINUE,TOK_MATCH,TOK_STRUCT,TOK_ENUM,TOK_TRAIT,TOK_IMPL,
         TOK_USE,TOK_PUB,TOK_UNSAFE,TOK_EXTERN,TOK_TRUE,TOK_FALSE,TOK_UNLESS,TOK_EFFECT,
+        TOK_MOVE,TOK_REF,TOK_MUT_REF,
         TOK_AND,TOK_OR,TOK_NOT
     };
     for (int i = 0; kw[i]; i++)
@@ -173,10 +175,35 @@ Token lexer_next(Lexer *l) {
         return t;
     }
 
-    /* integers and floats */
+    /* integers, hex, bin, and floats */
     if (isdigit((unsigned char)s[l->pos])) {
         size_t start = l->pos;
         long long val = 0;
+        if (s[l->pos] == '0' && (s[l->pos+1] == 'x' || s[l->pos+1] == 'X')) {
+            l->pos += 2; l->col += 2;
+            while (isxdigit((unsigned char)s[l->pos])) {
+                char c = s[l->pos];
+                if (c >= '0' && c <= '9') val = val * 16 + (c - '0');
+                else if (c >= 'a' && c <= 'f') val = val * 16 + (c - 'a' + 10);
+                else if (c >= 'A' && c <= 'F') val = val * 16 + (c - 'A' + 10);
+                l->pos++; l->col++;
+            }
+            Token t = token_new(l, TOK_INT);
+            t.int_val = val;
+            t.len = l->pos - start;
+            return t;
+        }
+        if (s[l->pos] == '0' && (s[l->pos+1] == 'b' || s[l->pos+1] == 'B')) {
+            l->pos += 2; l->col += 2;
+            while (s[l->pos] == '0' || s[l->pos] == '1') {
+                val = val * 2 + (s[l->pos] - '0');
+                l->pos++; l->col++;
+            }
+            Token t = token_new(l, TOK_INT);
+            t.int_val = val;
+            t.len = l->pos - start;
+            return t;
+        }
         while (isdigit((unsigned char)s[l->pos])) {
             val = val * 10 + (s[l->pos] - '0');
             l->pos++; l->col++;
@@ -210,6 +237,47 @@ Token lexer_next(Lexer *l) {
         Token t = token_new(l, TOK_INT);
         t.int_val = val;
         t.len = l->pos - start;
+        return t;
+    }
+
+    /* char literals */
+    if (s[l->pos] == '\'') {
+        size_t cstart = l->pos;
+        l->pos++; l->col++;
+        long long cval = 0;
+        if (s[l->pos] == '\\') {
+            l->pos++; l->col++;
+            char esc = s[l->pos];
+            if (esc == 'n') cval = '\n';
+            else if (esc == 'r') cval = '\r';
+            else if (esc == 't') cval = '\t';
+            else if (esc == '\\') cval = '\\';
+            else if (esc == '\'') cval = '\'';
+            else if (esc == '0') cval = '\0';
+            else if (esc == 'x') {
+                l->pos++; l->col++;
+                unsigned char byte = 0;
+                for (int h = 0; h < 2 && isxdigit(s[l->pos]); h++) {
+                    byte *= 16;
+                    char c = s[l->pos];
+                    if (c >= '0' && c <= '9') byte += c - '0';
+                    else if (c >= 'a' && c <= 'f') byte += c - 'a' + 10;
+                    else if (c >= 'A' && c <= 'F') byte += c - 'A' + 10;
+                    l->pos++; l->col++;
+                }
+                cval = byte;
+                goto char_done;
+            } else { cval = esc; }
+            l->pos++; l->col++;
+        } else if (s[l->pos] && s[l->pos] != '\'') {
+            cval = s[l->pos];
+            l->pos++; l->col++;
+        }
+        char_done:
+        Token t = token_new(l, TOK_CHAR);
+        t.int_val = cval;
+        t.len = l->pos - cstart + 1;
+        if (s[l->pos] == '\'') { l->pos++; l->col++; }
         return t;
     }
 

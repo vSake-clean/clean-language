@@ -475,11 +475,11 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
                         arm->match_arm.variant = pt.text; pt.text = NULL;
                     }
                 }
-                else if (peek(p).type == TOK_INT || peek(p).type == TOK_TRUE || peek(p).type == TOK_FALSE) {
+                else if (peek(p).type == TOK_INT || peek(p).type == TOK_CHAR || peek(p).type == TOK_TRUE || peek(p).type == TOK_FALSE) {
                     Token lt = next(p);
                     arm->match_arm.variant = strdup("_literal");
                     Node *lit_body = node_new(NODE_EXPR_STMT);
-                    if (lt.type == TOK_INT) {
+                    if (lt.type == TOK_INT || lt.type == TOK_CHAR) {
                         lit_body->expr_stmt.expr = node_new(NODE_INT);
                         lit_body->expr_stmt.expr->int_val = lt.int_val;
                     } else {
@@ -779,6 +779,24 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
         left->unary.operand = parse_expr_prec(p, PREC_UNARY);
         left->src_line = t.line; left->src_col = t.col;
         break;
+    case TOK_REF:
+        next(p); left = node_new(NODE_BORROW);
+        left->borrow.operand = parse_expr_prec(p, PREC_UNARY);
+        left->borrow.mut = 0;
+        left->src_line = t.line; left->src_col = t.col;
+        break;
+    case TOK_MUT_REF:
+        next(p); left = node_new(NODE_MUT_BORROW);
+        left->borrow.operand = parse_expr_prec(p, PREC_UNARY);
+        left->borrow.mut = 1;
+        left->src_line = t.line; left->src_col = t.col;
+        break;
+    case TOK_MOVE:
+        next(p); left = node_new(NODE_UNARY);
+        left->unary.op = 3;
+        left->unary.operand = parse_expr_prec(p, PREC_UNARY);
+        left->src_line = t.line; left->src_col = t.col;
+        break;
     case TOK_INT:
         next(p); left = node_new(NODE_INT);
         left->int_val = t.int_val;
@@ -792,6 +810,11 @@ static Node *parse_expr_prec(Parser *p, Precedence min_prec) {
     case TOK_STR:
         next(p); left = node_new(NODE_STR);
         left->str_val = t.text; t.text = NULL;
+        left->src_line = t.line; left->src_col = t.col;
+        break;
+    case TOK_CHAR:
+        next(p); left = node_new(NODE_INT);
+        left->int_val = t.int_val;
         left->src_line = t.line; left->src_col = t.col;
         break;
     case TOK_TRUE: next(p); left = node_new(NODE_BOOL); left->bool_val = 1; left->src_line = t.line; left->src_col = t.col; break;

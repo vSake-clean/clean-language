@@ -642,6 +642,7 @@ static void gen_expr(Codegen *c, Node *n) {
         if (n->unary.op == 0) emit(c, "  test rax, rax\n  setz al\n  movzx rax, al\n");
         else if (n->unary.op == 1) emit(c, "  neg rax\n");
         else if (n->unary.op == 2) emit(c, "  not rax\n");
+        /* op 3 = move: no-op */
         break;
     case NODE_BINARY: {
         int op = n->binary.op;
