@@ -149,6 +149,11 @@ static void check_expr(CheckCtx *c, Node *n) {
         break;
     case NODE_UNARY:
         check_expr(c, n->unary.operand);
+        if (n->unary.op == 3 && n->unary.operand->type == NODE_IDENT) {
+            int idx = find_var(c, n->unary.operand->ident);
+            if (idx >= 0 && c->vars[idx].state == VS_ALIVE)
+                c->vars[idx].state = VS_MOVED;
+        }
         break;
     case NODE_BINARY:
         check_expr(c, n->binary.left);

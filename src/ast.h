@@ -45,8 +45,8 @@ typedef struct Node {
     size_t src_line;
     size_t src_col;
     union {
-        struct { char *name; struct Node *params; struct Node *ret_type; struct Node *body; int effect; } fn;
-        struct { char *name; struct Node *params; struct Node *ret_type; } ext;
+        struct { char *name; struct Node *params; struct Node *ret_type; struct Node *body; int effect; int pub; } fn;
+        struct { char *name; struct Node *params; struct Node *ret_type; int pub; } ext;
         struct { struct Node *stmts; } block;
         struct { char *name; struct Node *type; struct Node *init; int mut; } let;
         struct { struct Node *lhs; struct Node *rhs; } assign;

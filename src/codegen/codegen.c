@@ -1223,7 +1223,9 @@ static void gen_fn(Codegen *c, Node *n) {
     emit(c, "\n.section .text\n");
     const char *name = n->fn.name;
     if (c->gui_mode && strcmp(name, "main") == 0) name = "clean_main";
-    emit(c, ".globl %s\n.type %s, @function\n%s:\n", name, name, name);
+    if (n->fn.pub || strcmp(name, "main") == 0)
+        emit(c, ".globl %s\n", name);
+    emit(c, ".type %s, @function\n%s:\n", name, name);
     emit(c, "  push rbp\n  mov rbp, rsp\n");
     static const char *arg_regs[] = {"rdi","rsi","rdx","rcx","r8","r9"};
     int reg_idx = 0;
@@ -1348,7 +1350,9 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
     collect_enums(&cg, prog);
     for (Node *item = prog->next; item; item = item->next) {
         if (item->type == NODE_FN_DECL) gen_fn(&cg, item);
-        else if (item->type == NODE_EXTERN_DECL) emit(&cg, ".globl %s\n", item->ext.name);
+        else if (item->type == NODE_EXTERN_DECL) {
+            if (item->ext.pub) emit(&cg, ".globl %s\n", item->ext.name);
+        }
         else if (item->type == NODE_IMPL_BLOCK)
             for (Node *m = item->impl_block.methods; m; m = m->next)
                 if (m->type == NODE_FN_DECL) gen_fn(&cg, m);

@@ -145,13 +145,14 @@ static Node *parse_params(Parser *p) {
     return head;
 }
 
-static Node *parse_item(Parser *p) {
+static Node *parse_item(Parser *p, int is_pub) {
     Token t = next(p);
 
     if (t.type == TOK_FN) {
         Token name = consume(p, TOK_IDENT, "expected function name");
         Node *n = node_new(NODE_FN_DECL);
         n->fn.name = name.text; name.text = NULL;
+        n->fn.pub = is_pub;
         n->src_line = t.line; n->src_col = t.col;
         n->fn.params = parse_params(p);
         n->fn.ret_type = NULL;
@@ -178,6 +179,7 @@ static Node *parse_item(Parser *p) {
         Token name = consume(p, TOK_IDENT, "expected function name");
         Node *n = node_new(NODE_EXTERN_DECL);
         n->ext.name = name.text; name.text = NULL;
+        n->ext.pub = is_pub;
         n->src_line = t.line; n->src_col = t.col;
         n->ext.params = parse_params(p);
         n->ext.ret_type = NULL;
@@ -343,6 +345,7 @@ static Node *parse_item(Parser *p) {
                     Token mname = consume(p, TOK_IDENT, "expected method name");
                     Node *method = node_new(NODE_FN_DECL);
                     method->fn.name = mname.text; mname.text = NULL;
+                    method->fn.pub = is_pub;
                     method->fn.params = parse_params(p);
                     method->fn.ret_type = NULL;
                     method->fn.effect = match(p, TOK_EFFECT);
@@ -383,6 +386,7 @@ static Node *parse_item(Parser *p) {
                     Token mname = consume(p, TOK_IDENT, "expected method name");
                     Node *method = node_new(NODE_FN_DECL);
                     method->fn.name = mname.text; mname.text = NULL;
+                    method->fn.pub = is_pub;
                     method->fn.params = parse_params(p);
                     method->fn.ret_type = NULL;
                     method->fn.effect = match(p, TOK_EFFECT);
@@ -1138,8 +1142,9 @@ Node *parser_parse(Parser *p) {
         if (t.type == TOK_EOF) break;
         if (t.type == TOK_NEWLINE) { next(p); continue; }
         if (t.type == TOK_DEDENT) { next(p); continue; }
-        if (t.type == TOK_PUB) { next(p); continue; }
-        Node *item = parse_item(p);
+        int is_pub = 0;
+        if (t.type == TOK_PUB) { next(p); is_pub = 1; }
+        Node *item = parse_item(p, is_pub);
         if (item) { *tail = item; tail = &item->next; }
     }
     /* append lambdas to program */
