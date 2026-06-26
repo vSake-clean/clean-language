@@ -150,23 +150,54 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - **docs/SPECIFICATION.md** — formal EBNF grammar, type system, memory model, compiler architecture, VM design, code protection
 
 ## Known Limitations
-- `:` after `while`/`if`/`fn` is optional (no error if missing)
-- Variables stay on stack (no register optimization) — 7.3s vs 3.6s C -O0 for 1B count
-- `extern` only at top level (not inside functions)
-- No strings (`*u8`, `usize`, etc.), no types beyond `i32`/`i64`/`str`/`bool`/float
-- Struct field resolution is by name search across ALL structs (ambiguous field names may resolve incorrectly)
-- Some `diag_add` calls pass `0,0,1` as location (needs token position)
-- The token under the caret in error output may be misaligned if the line has tabs or Unicode
-- List comprehensions always use print_int (no pure iteration yet)
-- `assert` uses abort(1) — no custom assertion message
-- Comprehensions only support range-based iteration (start..end), not arbitrary iterables
-- Enum type parameters (`Option<T>`) parsed but monomorphization partial — payloads still 8-byte aligned (bool size not yet 1 byte in match arms)
-- No channels, green threads, or async support yet
-- `@memoize`, `@lazy` annotations not yet implemented
-- GC: scope-based free for local heap vars, but cross-function heap transfers may still leak
-- `calc_expr` builtin has ~256 lines of hand-written assembly (maintainability issue)
-- No `\n` after `print_str` output (no newline appended)
-- `clean run` exit code is ignored (always returns 0 to shell)
+
+### ❌ Całkowicie niezaimplementowane
+| Obszar | Co brakuje |
+|--------|-----------|
+| Type inference | Algorytm W (Hindley-Milner) — jest tylko proste `infer_expr_type` dla annotated typów |
+| MIR/LIR | W ogóle nie istnieją (`src/mir/`, `src/lir/` nie ma) — codegen idzie wprost z AST do asm |
+| Register allocation | Brak Linear Scan — wszystko na stacku (stąd 2× wolniej niż C -O0) |
+| Borrow checker | Tylko ownership (Alive/Moved), brak NLL, brak region inference, brak `&`/`&mut` |
+| Bytecode VM | Brak `src/vm/` — spec opisuje .clb, szyfrowanie, interpreter |
+| Obfuskacja | Brak `src/obfus/` — symbol mangling, constant hiding, CFG flattening |
+| AArch64 backend | Brak `emit_a64.c` — tylko x86-64 |
+| Pełny system typów | Tylko i64, f64, bool. Brak: i8–i128, u8–u128, f32, char, String, Array[T;N], Slice[T], usize, (), `*u8` |
+| Trait dispatch | `trait` w preludzie to tylko stuby — implementacje nie działają |
+| use/importy | Brak systemu modułów |
+| Closures/lambdy | `fn(params) body` w spec, brak w parserze |
+| pub/unsafe | Słowa kluczowe zdefiniowane, brak efektu |
+| Inline extern w funkcjach | Tylko top-level |
+| `?.` operator | Brak |
+| Literały tablicowe | `[1, 2, 3]` — brak |
+| Indeksowanie `arr[i]` | Brak |
+| `char` i CHAR_LIT | `'a'` — brak |
+| true/false | Tokeny bool — brak (są identyfikatorami) |
+| Hex/bin literały | `0xFF`, `0b1010` — brak |
+| move/ref/mut_ref | Słowa kluczowe w gramatyce, brak w parserze |
+| Arena allocator | Brak `src/arena.c` |
+| Name resolution | Brak `src/resolve.c` |
+| Error recovery | Parser nie synchronizuje na błędach |
+| Optymalizacje | Brak constant folding, DCE, inlining |
+
+### ⚠️ Niekompletne
+| Obszar | Status |
+|--------|--------|
+| Type checker (`check.c`) | Prosty, sprawdza tylko annotated typy; reszta przepuszcza bez błędu |
+| Enum monomorfizacja | `<T>` sparsowane, ale payload zawsze 8-bajtowy (nawet dla bool) |
+| Struct field resolution | Szuka po nazwie we wszystkich structach — może dać zły offset przy kolizji |
+| Comprehensions | Tylko `start..end`, zawsze `print_int`, brak czystej iteracji |
+| GC | Scope-based free wewnątrz funkcji, cross-function transfery leakują |
+| Prelude (`lib/prelude.cl`) | Same stuby z komentarzem "not implemented" |
+| Stringi | `str` to goły wskaźnik (`*u8`), brak proper typed string |
+| Diag location | Wiele `diag_add(0,0,1)` zamiast rzeczywistego spana |
+
+### 🛠 Brakujące narzędzia
+| Narzędzie | Status |
+|-----------|--------|
+| LSP / IDE support | Brak |
+| Package manager | Brak |
+| Formatter | Brak |
+| Debug info (DWARF) | Brak |
 
 ## Recent Changes (2024-06-25)
 - **Type checker** (`check.c`): `infer_expr_type()` walks AST to determine ValType of any expression. `check_stmt` compares declared vs inferred types for `let`, `assign`, `return`. Error code E1004 ("type mismatch"). Currently checks annotated types only; untyped variables pass without error.
