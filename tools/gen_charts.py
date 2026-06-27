@@ -42,29 +42,23 @@ def make_chart(data, title, ylabel, filename, highlight_clean=True):
     
     bars = ax.bar(x, values, width, color=colors, edgecolor='white', linewidth=0.5)
     
-    suffix = ylabel.split('|')[-1] if '|' in ylabel else 's'
     for bar, val in zip(bars, values):
         if val >= 100:
-            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.1f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+            txt = f'{val:.0f}s'
         elif val >= 10:
-            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.1f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+            txt = f'{val:.1f}s'
         elif val >= 1:
-            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.2f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+            txt = f'{val:.2f}s'
         else:
-            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.2f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+            txt = f'{val:.2f}s'
+        ax.text(bar.get_x() + bar.get_width()/2., bar.get_y() + bar.get_height() + max(values)*0.015,
+                txt, ha='center', va='top', fontsize=9, fontweight='bold')
     
-    # add dashed baseline at 1.0 for relative-performance charts
-    has_baseline = any(v == 1.0 or ('|' in ylabel) for v in values)
-    if has_baseline:
-        ax.axhline(y=1.0, color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
+    ax.invert_yaxis()
     
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=25, ha='right', fontsize=9)
-    ax.set_ylabel(ylabel.split('|')[0] if '|' in ylabel else ylabel, fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=11)
     ax.set_title(title, fontsize=13, fontweight='bold', pad=12)
     ax.set_axisbelow(True)
     ax.yaxis.grid(True, linestyle='--', alpha=0.3)
@@ -81,20 +75,20 @@ benchmarks = [
     {
         'file': 'bench/count_bench.png',
         'title': 'Count-to-1-billion (pusta pętla, 10⁹ iteracji)',
-        'ylabel': 'Wydajność względem C (-O0) (×) — więcej = lepiej|×',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
-            ('Clean', 3.65/1.10),
-            ('C (-O0)', 1.00),
-            ('Clean (bez rej.)', 3.65/7.30),
-            ('PHP 8.4', 3.65/6.97),
-            ('Ruby 3.3', 3.65/32.52),
-            ('Python 3.13', 3.65/156.32),
+            ('Clean', 1.10),
+            ('Clean (bez rej.)', 7.30),
+            ('C (-O0)', 3.65),
+            ('PHP 8.4', 6.97),
+            ('Ruby 3.3', 32.52),
+            ('Python 3.13', 156.32),
         ],
     },
     {
         'file': 'bench/prime_bench.png',
         'title': 'Liczby pierwsze do 1.000.000 (sito z dzieleniem)',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
             ('C (-O0)', 0.46),
             ('Clean', 1.72),
@@ -106,7 +100,7 @@ benchmarks = [
     {
         'file': 'bench/fib_bench.png',
         'title': 'Fibonacci(35) — rekurencyjny',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
             ('C (-O0)', 0.17),
             ('Clean', 0.20),
@@ -118,7 +112,7 @@ benchmarks = [
     {
         'file': 'bench/nqueens_bench.png',
         'title': 'N-queens (13) — rekurencyjny backtracking',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
             ('C (-O0)', 3.35),
             ('Clean', 7.89),
@@ -130,7 +124,7 @@ benchmarks = [
     {
         'file': 'bench/mandelbrot_bench.png',
         'title': 'Mandelbrot (800×800, max 200) — zmiennoprzecinkowy',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
             ('C (-O0)', 0.44),
             ('Clean', 1.70),
@@ -142,7 +136,7 @@ benchmarks = [
     {
         'file': 'bench/bintree_bench.png',
         'title': 'Binary trees (depth 21 × 10) — alokacja sterty',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
             ('C (-O0)', 3.80),
             ('Clean', 4.70),
@@ -154,7 +148,7 @@ benchmarks = [
     {
         'file': 'bench/matrix_bench.png',
         'title': 'Mnożenie macierzy (100×100×100)',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Czas (s) — góra = lepiej',
         'data': [
             ('Clean', 0.05),
             ('C (-O0)', 0.20),
