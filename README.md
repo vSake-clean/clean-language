@@ -284,10 +284,12 @@ Clean — rejestrowa optymalizacja zmiennych (r13-r15) + binop w rejestrach.
 
 ### Mnożenie macierzy (100×100×100)
 
+![Matrix benchmark](bench/matrix_bench.png)
+
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | **Clean** | **0.05 s** | — |
-| C (-O0) | TBD | — |
+| C (-O0) | 0.20 s | — |
 
 ---
 
@@ -340,7 +342,7 @@ Benchmarki w `bench/`:
 | `nqueens.c` / `.py` / `.php` / `.rb` | N-queens (13) backtracking |
 | `mandelbrot.c` / `.py` / `.php` / `.rb` | Mandelbrot 800×800 |
 | `bintree.c` / `.py` / `.php` / `.rb` | Binary trees depth 21 |
-| `matrix.cl` | Mnożenie macierzy 100×100×100 |
+| `matrix.cl` / `.c` | Mnożenie macierzy 100×100×100 |
 
 ## Struktura projektu
 
