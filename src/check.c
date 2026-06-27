@@ -65,9 +65,9 @@ ValType infer_node_type(Node *n) {
         case NODE_BINARY: {
             ValType lt = infer_node_type(n->binary.left);
             ValType rt = infer_node_type(n->binary.right);
-            if (lt == TYPE_FLOAT || rt == TYPE_FLOAT) return TYPE_FLOAT;
             if (n->binary.op >= 5 && n->binary.op <= 10) return TYPE_BOOL; /* comparisons */
             if (n->binary.op >= 11 && n->binary.op <= 12) return TYPE_BOOL; /* and/or */
+            if (lt == TYPE_FLOAT || rt == TYPE_FLOAT) return TYPE_FLOAT;
             return lt;
         }
         case NODE_CALL:

@@ -751,10 +751,10 @@ static void gen_expr(Codegen *c, Node *n) {
             gen_expr(c, n->binary.right);
             emit(c, "  mov rcx, rax\n  pop rdx\n");
             emit(c, "  movq xmm0, rdx\n  movq xmm1, rcx\n");
-            if (op == 0) emit(c, "  adds%s xmm0, xmm1\n", fsuf);
-            else if (op == 1) emit(c, "  subs%s xmm0, xmm1\n", fsuf);
-            else if (op == 2) emit(c, "  muls%s xmm0, xmm1\n", fsuf);
-            else if (op == 3) emit(c, "  divs%s xmm0, xmm1\n", fsuf);
+            if (op == 0) emit(c, "  add%s xmm0, xmm1\n", fsuf);
+            else if (op == 1) emit(c, "  sub%s xmm0, xmm1\n", fsuf);
+            else if (op == 2) emit(c, "  mul%s xmm0, xmm1\n", fsuf);
+            else if (op == 3) emit(c, "  div%s xmm0, xmm1\n", fsuf);
             emit(c, "  movq rax, xmm0\n");
             break;
         }

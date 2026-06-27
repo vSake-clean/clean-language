@@ -168,7 +168,14 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 
 ## Recent Changes
 - **Register allocation + binary op optimization** (`codegen.c`): First 3 `var`/`let` variables assigned to r13/r14/r15 (callee-saved). Binary ops skip push/pop when left operand is in a register, emitting direct `cmp reg, val` / `lea rax, [reg + val]` / `mov rax, reg; add rax, reg` instead. Results: count-1B = **1.10s** (exceeds C -O0 at 3.6s). All benchmarks + regression tests pass.
+- **SSE instruction suffix fix** (`codegen.c`): `muls%s` produced `mulssd` (double `s` + `sd`). Fixed to `mul%s` — mnemonics are `mulsd`/`mulss`, not `mulssd`/`mulsss`. Same for `add`, `sub`, `div`.
+- **Float comparison type inference fix** (`check.c`): `infer_node_type` for `NODE_BINARY` checked float before comparison, returning `TYPE_FLOAT` for `x < y` when both operands are float. Fixed by moving comparison/bool checks before float check.
 - **MIR codegen disabled** (`codegen.c`): MIR while-loop lowering is broken (sequential code, no jumps). `codegen_mir_fn` returns 0; old codegen path always used.
+
+## Benchmarks
+- All 3 formerly-TBD benchmarks now working: nqueens (7.89s), mandelbrot (1.70s), bintree (4.70s)
+- Charts generated vertically via `tools/gen_charts.py` (Python + matplotlib)
+- Count benchmark includes "Clean (bez rej.)" variant at 7.30s
 - **Fixed prologue register push**: `gen_fn` now runs `count_locals` BEFORE emitting callee-saved register pushes, so `used_regs` is known. Previously pushed nothing (used_regs was 0) but epilogue still popped, corrupting stack.
 - **Type checker** (`check.c`): `infer_expr_type()` walks AST to determine ValType of any expression. `check_stmt` compares declared vs inferred types for `let`, `assign`, `return`. Error code E1004 ("type mismatch"). Currently checks annotated types only; untyped variables pass without error.
 - **GC**: Replaced `brk` syscalls with `malloc`/`free` for all heap allocations (struct literals, enum literals). SymTab `is_heap[]` tracks heap-allocated variables. Scope-based free at function exit. Assignment to heap var frees old value first.
