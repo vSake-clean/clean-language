@@ -212,7 +212,7 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 ### Count-to-1-billion (pusta pętla, 10⁹ iteracji)
 
-![Count benchmark](bench/count_chart.png)
+![Count benchmark](bench/count_bench.png)
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
@@ -224,7 +224,7 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 ### Liczby pierwsze do 1.000.000 (sito z dzieleniem)
 
-![Prime benchmark](bench/prime_chart.png)
+![Prime benchmark](bench/prime_bench.png)
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
@@ -236,7 +236,7 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 ### Fibonacci(35) — rekurencyjny
 
-![Fib benchmark](bench/fib_chart.png)
+![Fib benchmark](bench/fib_bench.png)
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
