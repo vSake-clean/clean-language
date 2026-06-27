@@ -308,15 +308,15 @@ Brak GC = Clean nie pauzuje na zbieranie śmieci, alokacja malloc jest determini
 
 ![Binary size](bench/size_bench.png)
 
-| Język | Rozmiar |
-|-------|---------|
-| Clean | ~3 KB |
-| C (-O0) | ~16 KB |
-| PHP | ~7 KB (skrypt) |
-| Ruby | ~64 B (skrypt) |
-| Python | ~64 B (skrypt) |
+| Język | Rozmiar | Typ |
+|-------|---------|-----|
+| Ruby | **47 B** | skrypt |
+| Python | **48 B** | skrypt |
+| PHP | **57 B** | skrypt |
+| C (-O0) | **15.6 KB** | ELF (static linked) |
+| Clean | **16.3 KB** | ELF (static linked) |
 
-Clean produkuje natywne ELF bez zewnętrznych zależności (static linked).
+Clean produkuje natywne ELF bez zewnętrznych zależności. ~16 KB to cały program + print_int + pętla + exit. Dla porównania: `rustup run stable cargo new --bin hello && cargo build --release` daje ~400 KB.
 
 ### Cechy języka w pigułce
 
