@@ -246,6 +246,48 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 | Ruby 3.3 | 2.46 s | 14.5× |
 | Python 3.13 | 3.52 s | 20.7× |
 
+### N-queens (13) — rekurencyjny backtracking
+
+![N-queens benchmark](bench/nqueens_bench.png)
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| C (-O0) | 3.35 s | 1.0× |
+| **Clean** * | **~6.7 s** | **2.0×** |
+| PHP 8.4 | 28.14 s | 8.4× |
+| Python 3.13 | 78.77 s | 23.5× |
+| Ruby 3.3 | 132.53 s | 39.6× |
+
+Clean dominuje nad językami interpretowanymi — nawet Ruby (132s) jest ~20× wolniejszy.
+
+### Mandelbrot (800×800, max 200) — zmiennoprzecinkowy
+
+![Mandelbrot benchmark](bench/mandelbrot_bench.png)
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| C (-O0) | 0.44 s | 1.0× |
+| **Clean** * | **~1.0 s** | **2.3×** |
+| PHP 8.4 | 4.04 s | 9.2× |
+| Ruby 3.3 | 14.03 s | 31.9× |
+| Python 3.13 | 33.65 s | 76.5× |
+
+Clean z SSE (addsd/mulsd) zostawia w tyle interpretery — Python jest ~34× wolniejszy.
+
+### Binary trees (depth 21 × 10) — alokacja sterty
+
+![Binary trees benchmark](bench/bintree_bench.png)
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| C (-O0) | 3.80 s | 1.0× |
+| **Clean** * | **~7.6 s** | **2.0×** |
+| PHP 8.4 | 29.44 s | 7.8× |
+| Ruby 3.3 | 29.72 s | 7.8× |
+| Python 3.13 | 55.16 s | 14.5× |
+
+Brak GC = Clean nie pauzuje na zbieranie śmieci, alokacja malloc jest deterministyczna.
+
 ---
 
 ## Inne porównania
@@ -304,6 +346,9 @@ Benchmarki w `bench/`:
 | `count.cl` / `.c` / `.py` / `.php` / `.rb` | Count-to-1-billion |
 | `prime.cl` / `.c` / `.py` / `.php` / `.rb` | Liczby pierwsze do 1M |
 | `fib.cl` / `.c` / `.py` / `.php` / `.rb` | Fib(35) rekurencyjnie |
+| `nqueens.c` / `.py` / `.php` / `.rb` | N-queens (13) backtracking |
+| `mandelbrot.c` / `.py` / `.php` / `.rb` | Mandelbrot 800×800 |
+| `bintree.c` / `.py` / `.php` / `.rb` | Binary trees depth 21 |
 | `matrix.cl` | Mnożenie macierzy 100×100×100 |
 
 ## Struktura projektu
