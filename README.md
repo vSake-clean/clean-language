@@ -304,20 +304,6 @@ Brak GC = Clean nie pauzuje na zbieranie śmieci, alokacja malloc jest determini
 | Clean | 6–12 tyg. | Ownership/borrowing jak Rust — wymaga zmiany myślenia o pamięci |
 | C | 8–16 tyg. | Manualne zarządzanie pamięcią, wskaźniki, braki w standardowej bibliotece |
 
-### Binarka: rozmiar pliku (count-to-1-billion)
-
-![Binary size](bench/size_bench.png)
-
-| Język | Rozmiar | Typ |
-|-------|---------|-----|
-| Ruby | **47 B** | skrypt |
-| Python | **48 B** | skrypt |
-| PHP | **57 B** | skrypt |
-| C (-O0) | **15.6 KB** | ELF (static linked) |
-| Clean | **16.3 KB** | ELF (static linked) |
-
-Clean produkuje natywne ELF bez zewnętrznych zależności. ~16 KB to cały program + print_int + pętla + exit. Dla porównania: `rustup run stable cargo new --bin hello && cargo build --release` daje ~400 KB.
-
 ### Cechy języka w pigułce
 
 | Cecha | Clean | C | Python | PHP | Ruby |
