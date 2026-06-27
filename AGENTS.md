@@ -151,7 +151,7 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - **docs/SPECIFICATION.md** — formal EBNF grammar, type system, memory model, compiler architecture, VM design, code protection
 
 ## Known Limitations
-- Variables stay on stack (no register optimization) — 7.3s vs 3.6s C -O0 for 1B count
+- Register optimization active: first 3 `var`/`let` variables get callee-saved regs (r13-r15). Binary ops skip push/pop when left operand is in a register. Results: count-1B = **1.10s** (beat C -O0 at 3.6s)
 - `extern` only at top level (not inside functions)
 - No strings (`*u8`, `usize`, etc.), no types beyond `i32`/`i64`/`str`/`bool`/float
 - `pub` on non-`fn` items silently ignored (struct/enum/trait `pub` tracked but not enforced)
@@ -167,6 +167,9 @@ Float ops: SSE `addsd`/`subsd`/`mulsd`/`divsd` when either operand is NODE_FLOAT
 - `calc_expr` builtin assembly emitter is ~80 lines in codegen.c (generates verbose label-heavy asm)
 
 ## Recent Changes
+- **Register allocation + binary op optimization** (`codegen.c`): First 3 `var`/`let` variables assigned to r13/r14/r15 (callee-saved). Binary ops skip push/pop when left operand is in a register, emitting direct `cmp reg, val` / `lea rax, [reg + val]` / `mov rax, reg; add rax, reg` instead. Results: count-1B = **1.10s** (exceeds C -O0 at 3.6s). All benchmarks + regression tests pass.
+- **MIR codegen disabled** (`codegen.c`): MIR while-loop lowering is broken (sequential code, no jumps). `codegen_mir_fn` returns 0; old codegen path always used.
+- **Fixed prologue register push**: `gen_fn` now runs `count_locals` BEFORE emitting callee-saved register pushes, so `used_regs` is known. Previously pushed nothing (used_regs was 0) but epilogue still popped, corrupting stack.
 - **Type checker** (`check.c`): `infer_expr_type()` walks AST to determine ValType of any expression. `check_stmt` compares declared vs inferred types for `let`, `assign`, `return`. Error code E1004 ("type mismatch"). Currently checks annotated types only; untyped variables pass without error.
 - **GC**: Replaced `brk` syscalls with `malloc`/`free` for all heap allocations (struct literals, enum literals). SymTab `is_heap[]` tracks heap-allocated variables. Scope-based free at function exit. Assignment to heap var frees old value first.
 - **Monomorphization foundations**: `valtype_size()` returns type byte sizes (bool=1, others=8). `infer_node_type()` + `valtype_size()` used in enum literal allocation and match arm payload loading.

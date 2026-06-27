@@ -14,7 +14,7 @@
 | Składnia | Wcięcia zamiast `{}` i `;` — jak Python, ale kompilowany do natywnego kodu |
 | Wydajność | Zero-cost abstrakcje, deterministyczna alokacja, brak GC |
 | Bezpieczeństwo | Kompilator blokuje use-after-move, data races na poziomie borrow checkera |
-| Szybkość | Natywny kod x86-64 — count-to-1-billion w 7s (Python: 156s, Ruby: 33s) |
+| Szybkość | Natywny kod x86-64 — count-to-1-billion w **1.1s** (C -O0: 3.6s, Python: 156s) |
 
 ---
 
@@ -208,7 +208,7 @@ clean --help                      # pomoc
 ## Porównanie wydajności
 
 Testy na x86-64 (Intel i7, GCC 14, PHP 8.4, Ruby 3.3, Python 3.13).  
-Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
+Clean — rejestrowa optymalizacja zmiennych (r13-r15) + binop w rejestrach.
 
 ### Count-to-1-billion (pusta pętla, 10⁹ iteracji)
 
@@ -216,9 +216,9 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
+| **Clean** | **1.10 s** | **0.3×** 🔥 |
 | C (-O0) | 3.65 s | 1.0× |
 | PHP 8.4 | 6.97 s | 1.9× |
-| **Clean** * | **~7.3 s** | **2.0×** |
 | Ruby 3.3 | 32.52 s | 8.9× |
 | Python 3.13 | 156.32 s | 42.8× |
 
@@ -228,8 +228,8 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
+| **Clean** | **1.72 s** | **3.7×** |
 | C (-O0) | 0.46 s | 1.0× |
-| **Clean** * | **~1.0 s** | **2.2×** |
 | PHP 8.4 | 2.77 s | 6.0× |
 | Ruby 3.3 | 6.56 s | 14.3× |
 | Python 3.13 | 30.66 s | 66.7× |
@@ -240,8 +240,8 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
+| **Clean** | **0.20 s** | **1.2×** |
 | C (-O0) | 0.17 s | 1.0× |
-| **Clean** * | **~0.85 s** | **5.0×** |
 | PHP 8.4 | 1.57 s | 9.2× |
 | Ruby 3.3 | 2.46 s | 14.5× |
 | Python 3.13 | 3.52 s | 20.7× |
@@ -253,12 +253,10 @@ Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | C (-O0) | 3.35 s | 1.0× |
-| **Clean** * | **~6.7 s** | **2.0×** |
+| Clean | TBD (ownership error w bench/nqueens.cl) | — |
 | PHP 8.4 | 28.14 s | 8.4× |
 | Python 3.13 | 78.77 s | 23.5× |
 | Ruby 3.3 | 132.53 s | 39.6× |
-
-Clean dominuje nad językami interpretowanymi — nawet Ruby (132s) jest ~20× wolniejszy.
 
 ### Mandelbrot (800×800, max 200) — zmiennoprzecinkowy
 
@@ -267,12 +265,10 @@ Clean dominuje nad językami interpretowanymi — nawet Ruby (132s) jest ~20× w
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | C (-O0) | 0.44 s | 1.0× |
-| **Clean** * | **~1.0 s** | **2.3×** |
+| Clean | TBD (bench wymaga floatów; obecny .cl używa int) | — |
 | PHP 8.4 | 4.04 s | 9.2× |
 | Ruby 3.3 | 14.03 s | 31.9× |
 | Python 3.13 | 33.65 s | 76.5× |
-
-Clean z SSE (addsd/mulsd) zostawia w tyle interpretery — Python jest ~34× wolniejszy.
 
 ### Binary trees (depth 21 × 10) — alokacja sterty
 
@@ -281,12 +277,17 @@ Clean z SSE (addsd/mulsd) zostawia w tyle interpretery — Python jest ~34× wol
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | C (-O0) | 3.80 s | 1.0× |
-| **Clean** * | **~7.6 s** | **2.0×** |
+| Clean | TBD (bench/binree.cl wymaga struct `Node`) | — |
 | PHP 8.4 | 29.44 s | 7.8× |
 | Ruby 3.3 | 29.72 s | 7.8× |
 | Python 3.13 | 55.16 s | 14.5× |
 
-Brak GC = Clean nie pauzuje na zbieranie śmieci, alokacja malloc jest deterministyczna.
+### Mnożenie macierzy (100×100×100)
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| **Clean** | **0.05 s** | — |
+| C (-O0) | TBD | — |
 
 ---
 
