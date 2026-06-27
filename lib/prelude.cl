@@ -1,6 +1,4 @@
-# Clean prelude — automatically included in every module (v0.1)
-# Note: Example enum definitions. Type params <T, E> parsed but
-# monomorphization not implemented — payloads use fixed-size allocation.
+# Clean prelude — automatically prepended to every module (v0.2)
 
 enum Option<T>:
     None
@@ -11,7 +9,7 @@ enum Result<T, E>:
     Err(E)
 
 trait Ord:
-    fn cmp(self, other: Self) -> i32
+    fn cmp(self, other: Self) -> i64
 
 trait Display:
     fn fmt(self) -> str

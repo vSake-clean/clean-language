@@ -1,8 +1,8 @@
-fn fib(n: i32) -> i32
-    if n < 2
+fn fib(n: i64) -> i64:
+    if n < 2:
         return n
     return fib(n - 1) + fib(n - 2)
 
-fn main() -> i32
+fn main() effect -> i64:
     print_int(fib(35))
     return 0

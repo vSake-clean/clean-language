@@ -24,6 +24,7 @@ typedef struct {
     Error errors[MAX_ERRORS];
     int error_count;
     int warn_count;
+    int seen_error;
 } Diag;
 
 void diag_init(Diag *d, const char *filename, const char *source, size_t source_len);

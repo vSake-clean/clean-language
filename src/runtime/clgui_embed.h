@@ -793,6 +793,5 @@ static const char *clgui_embedded =
   "    saved_argv = argv;\n"
   "    return clean_main();\n"
   "}\n"
-  "\n"
-;
+  "";
 #endif

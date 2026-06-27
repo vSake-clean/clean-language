@@ -7,6 +7,8 @@
 #include "codegen/codegen.h"
 #include "diag.h"
 #include "check.h"
+#include "borrowck.h"
+#include "mir/mir.h"
 
 static void print_usage(void) {
     printf("Clean v0.2.0 — native compiler for Clean language\n\n");
@@ -116,6 +118,19 @@ static int compile(const char *source_file, const char *output_file, int run_it,
         node_free(prog); free(source); parser_free(&parser); diag_free(&diag);
         return 1;
     }
+    if (diag_has_any(&diag)) diag_print_all(&diag);
+
+    borrowck_program(prog, &diag, source);
+    if (diag_has_errors(&diag)) {
+        diag_print_all(&diag);
+        node_free(prog); free(source); parser_free(&parser); diag_free(&diag);
+        return 1;
+    }
+    if (diag_has_any(&diag)) diag_print_all(&diag);
+
+    /* optimize: constant folding, dead code elimination, inlining */
+    ast_optimize(prog);
+
     if (diag_has_any(&diag)) diag_print_all(&diag);
 
     const char *rt_path = get_rt_path();

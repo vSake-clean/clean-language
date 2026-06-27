@@ -29,12 +29,24 @@ typedef struct {
 
 const char *valtype_str(ValType t) {
     switch (t) {
+        case TYPE_I8: return "i8";
+        case TYPE_I16: return "i16";
+        case TYPE_I32: return "i32";
         case TYPE_I64: return "i64";
-        case TYPE_BOOL: return "bool";
-        case TYPE_STR: return "str";
+        case TYPE_U8: return "u8";
+        case TYPE_U16: return "u16";
+        case TYPE_U32: return "u32";
+        case TYPE_U64: return "u64";
+        case TYPE_I128: return "i128";
+        case TYPE_U128: return "u128";
+        case TYPE_F32: return "f32";
         case TYPE_FLOAT: return "float";
-        case TYPE_VOID: return "void";
+        case TYPE_BOOL: return "bool";
         case TYPE_CHAR: return "char";
+        case TYPE_STR: return "str";
+        case TYPE_VOID: return "void";
+        case TYPE_USIZE: return "usize";
+        case TYPE_ISIZE: return "isize";
         default: return "unknown";
     }
 }
@@ -91,7 +103,21 @@ ValType infer_node_type(Node *n) {
 int valtype_size(ValType t) {
     switch (t) {
         case TYPE_BOOL:
-        case TYPE_CHAR: return 1;
+        case TYPE_CHAR:
+        case TYPE_I8:
+        case TYPE_U8: return 1;
+        case TYPE_I16:
+        case TYPE_U16: return 2;
+        case TYPE_I32:
+        case TYPE_U32:
+        case TYPE_F32: return 4;
+        case TYPE_I64:
+        case TYPE_U64:
+        case TYPE_FLOAT:
+        case TYPE_ISIZE:
+        case TYPE_USIZE: return 8;
+        case TYPE_I128:
+        case TYPE_U128: return 16;
         default: return 8;
     }
 }
@@ -119,12 +145,25 @@ static int add_var(CheckCtx *c, const char *name, ValType type, size_t line, siz
     return c->count++;
 }
 
-static ValType get_type_for_name(const char *name) {
+ValType get_type_for_name(const char *name) {
     if (!name) return TYPE_UNKNOWN;
-    if (strcmp(name, "i64") == 0 || strcmp(name, "i32") == 0 || strcmp(name, "i8") == 0) return TYPE_I64;
-    if (strcmp(name, "bool") == 0) return TYPE_BOOL;
-    if (strcmp(name, "str") == 0 || strcmp(name, "String") == 0) return TYPE_STR;
+    if (strcmp(name, "i8") == 0) return TYPE_I8;
+    if (strcmp(name, "i16") == 0) return TYPE_I16;
+    if (strcmp(name, "i32") == 0) return TYPE_I32;
+    if (strcmp(name, "i64") == 0) return TYPE_I64;
+    if (strcmp(name, "u8") == 0) return TYPE_U8;
+    if (strcmp(name, "u16") == 0) return TYPE_U16;
+    if (strcmp(name, "u32") == 0) return TYPE_U32;
+    if (strcmp(name, "u64") == 0) return TYPE_U64;
+    if (strcmp(name, "i128") == 0) return TYPE_I128;
+    if (strcmp(name, "u128") == 0) return TYPE_U128;
+    if (strcmp(name, "f32") == 0) return TYPE_F32;
     if (strcmp(name, "float") == 0) return TYPE_FLOAT;
+    if (strcmp(name, "bool") == 0) return TYPE_BOOL;
+    if (strcmp(name, "char") == 0) return TYPE_CHAR;
+    if (strcmp(name, "str") == 0 || strcmp(name, "String") == 0) return TYPE_STR;
+    if (strcmp(name, "usize") == 0) return TYPE_USIZE;
+    if (strcmp(name, "isize") == 0) return TYPE_ISIZE;
     return TYPE_UNKNOWN;
 }
 
@@ -207,8 +246,22 @@ static void check_expr(CheckCtx *c, Node *n) {
     }
 }
 
+static int is_numeric(ValType t) {
+    switch (t) {
+        case TYPE_I8: case TYPE_I16: case TYPE_I32: case TYPE_I64:
+        case TYPE_U8: case TYPE_U16: case TYPE_U32: case TYPE_U64:
+        case TYPE_I128: case TYPE_U128:
+        case TYPE_F32: case TYPE_FLOAT:
+        case TYPE_USIZE: case TYPE_ISIZE:
+            return 1;
+        default: return 0;
+    }
+}
+
 static void check_type_mismatch(CheckCtx *c, Node *n, ValType expected, ValType got) {
     if (expected == TYPE_UNKNOWN || got == TYPE_UNKNOWN || expected == got) return;
+    /* allow implicit numeric conversion */
+    if (is_numeric(expected) && is_numeric(got)) return;
     char buf[256];
     snprintf(buf, sizeof(buf), "type mismatch: expected `%s`, got `%s`", valtype_str(expected), valtype_str(got));
     diag_add(c->diag, 1004, SEV_ERROR, n->src_line, n->src_col, 1, buf);
@@ -228,6 +281,16 @@ static void check_stmt(CheckCtx *c, Node *n) {
             declared = get_type_for_name(n->let.type->ident);
         }
         if (n->let.init) {
+            /* warn on unnecessary `move` in `let y = move x` */
+            if (n->let.init->type == NODE_UNARY && n->let.init->unary.op == 3 &&
+                n->let.init->unary.operand && n->let.init->unary.operand->type == NODE_IDENT &&
+                declared == TYPE_UNKNOWN) {
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                    "unnecessary `move` — `let %s = %s` already moves",
+                    n->let.name, n->let.init->unary.operand->ident);
+                diag_add(c->diag, 1005, SEV_WARN, n->let.init->src_line, n->let.init->src_col, 1, buf);
+            }
             /* check move semantics */
             if (n->let.init->type == NODE_IDENT) {
                 int idx = find_var(c, n->let.init->ident);

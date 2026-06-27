@@ -4,6 +4,8 @@
 #include "../check.h"
 #include "../parser/parser.h"
 #include "../runtime/clgui_embed.h"
+#include "../mir/mir.h"
+#include "../lir/lir.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -47,6 +49,7 @@ typedef struct {
     int struct_idx[MAX_VARS];
     int is_float[MAX_VARS];
     int is_heap[MAX_VARS];
+    int var_type[MAX_VARS];
     int count;
     int stack_size;
 } SymTab;
@@ -74,6 +77,7 @@ static int sym_add(SymTab *s, const char *name) {
     s->struct_idx[s->count] = -1;
     s->is_float[s->count] = 0;
     s->is_heap[s->count] = 0;
+    s->var_type[s->count] = TYPE_I64;
     s->count++;
     return s->offsets[s->count-1];
 }
@@ -113,7 +117,8 @@ static void emit(Codegen *c, const char *fmt, ...) {
 static int get_str_id(Codegen *c, const char *s) {
     for (int i = 0; i < c->str_cnt; i++)
         if (strcmp(c->strs[i], s) == 0) return i;
-    if (c->str_cnt < MAX_STRS) c->strs[c->str_cnt++] = s;
+    if (c->str_cnt >= MAX_STRS) { diag_add(c->diag, 0, SEV_ERROR, 0,0,0, "too many unique string literals"); exit(1); }
+    c->strs[c->str_cnt++] = s;
     return c->str_cnt - 1;
 }
 
@@ -166,19 +171,20 @@ static void emit_print_int(Codegen *c) {
     emit(c, "  push rbp\n  mov rbp, rsp\n  sub rsp, 48\n");
     emit(c, "  mov qword ptr [rbp-8], rdi\n");
     emit(c, "  lea rsi, [rbp-40]\n  add rsi, 19\n");
-    emit(c, "  mov rax, qword ptr [rbp-8]\n  mov rcx, 10\n");
+    emit(c, "  mov rax, qword ptr [rbp-8]\n  mov r8, 10\n");
     emit(c, "  cmp rax, 0\n  jge .L_print_pos_%d\n", lbl);
     emit(c, "  neg rax\n  push rax\n");
     emit(c, "  mov byte ptr [rbp-48], '-'\n");
     emit(c, "  mov rdi, 1\n  lea rsi, [rbp-48]\n  mov rdx, 1\n  mov rax, 1\n  syscall\n");
     emit(c, "  pop rax\n");
+    emit(c, "  lea rsi, [rbp-40]\n  add rsi, 19\n");
     emit(c, ".L_print_pos_%d:\n", lbl);
     emit(c, "  cmp rax, 0\n");
     emit(c, "  jne .L_print_loop_%d\n", lbl);
     emit(c, "  dec rsi\n  mov byte ptr [rsi], '0'\n");
     emit(c, "  jmp .L_print_done_%d\n", lbl);
     emit(c, ".L_print_loop_%d:\n", lbl);
-    emit(c, "  xor rdx, rdx\n  div rcx\n  add dl, '0'\n  dec rsi\n");
+    emit(c, "  xor rdx, rdx\n  div r8\n  add dl, '0'\n  dec rsi\n");
     emit(c, "  mov byte ptr [rsi], dl\n  cmp rax, 0\n");
     emit(c, "  jne .L_print_loop_%d\n", lbl);
     emit(c, ".L_print_done_%d:\n", lbl);
@@ -219,7 +225,7 @@ static void emit_time_ms(Codegen *c) {
     emit(c, "  lea rsi, [rbp-16]\n");
     emit(c, "  mov rax, 228\n  syscall\n");
     emit(c, "  mov rax, qword ptr [rbp-16]\n");
-    emit(c, "  mov rcx, 1000\n  mul rcx\n");
+    emit(c, "  imul rax, 1000\n");
     emit(c, "  mov r8, rax\n");
     emit(c, "  mov rax, qword ptr [rbp-8]\n");
     emit(c, "  mov rcx, 1000000\n  mov rdx, 0\n  div rcx\n");
@@ -235,9 +241,6 @@ static void emit_print_str(Codegen *c) {
     emit(c, "  push rbp\n  mov rbp, rsp\n");
     emit(c, "  mov rdx, rsi\n  mov rsi, rdi\n");
     emit(c, "  mov rdi, 1\n  mov rax, 1\n  syscall\n");
-    emit(c, "  push 10\n  mov rsi, rsp\n");
-    emit(c, "  mov rdi, 1\n  mov rdx, 1\n  mov rax, 1\n  syscall\n");
-    emit(c, "  pop rax\n");
     emit(c, "  mov rsp, rbp\n  pop rbp\n  ret\n");
 }
 
@@ -535,13 +538,11 @@ static void emit_string_clone(Codegen *c) {
     emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  sub rsp, 16\n");
     emit(c, "  mov qword ptr [rbp-24], rdi\n");  /* src */
     emit(c, "  mov qword ptr [rbp-32], rsi\n");  /* len */
-    /* allocate: len + 1 bytes via brk */
-    emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
-    emit(c, "  mov rbx, rax\n");
+    /* allocate: len + 1 bytes via malloc */
     emit(c, "  mov rdi, qword ptr [rbp-32]\n");
     emit(c, "  inc rdi\n");  /* len+1 */
-    emit(c, "  add rdi, rbx\n");
-    emit(c, "  mov rax, 12\n  syscall\n");
+    emit(c, "  call malloc\n");
+    emit(c, "  mov rbx, rax\n");
     /* copy */
     emit(c, "  mov rdi, rbx\n");
     emit(c, "  mov rsi, qword ptr [rbp-24]\n");
@@ -565,12 +566,12 @@ static void emit_string_concat(Codegen *c) {
     emit(c, "  mov rdi, qword ptr [rbp-56]\n");
     emit(c, "  xor rax, rax\n  mov rcx, -1\n  repne scasb\n  not rcx\n  dec rcx\n");
     emit(c, "  mov r13, rcx\n");  /* len_b */
-    /* allocate */
-    emit(c, "  mov rax, 12\n  xor rdi, rdi\n  syscall\n");
+    /* allocate: len_a + len_b + 1 via malloc */
+    emit(c, "  mov rdi, r12\n");
+    emit(c, "  add rdi, r13\n");
+    emit(c, "  inc rdi\n");  /* len_a + len_b + 1 */
+    emit(c, "  call malloc\n");
     emit(c, "  mov rbx, rax\n");
-    emit(c, "  mov rax, r12\n  add rax, r13\n  inc rax\n");  /* len_a + len_b + 1 */
-    emit(c, "  add rax, rbx\n  mov rdi, rax\n");
-    emit(c, "  mov rax, 12\n  syscall\n");
     /* copy a */
     emit(c, "  mov rdi, rbx\n");
     emit(c, "  mov rsi, qword ptr [rbp-48]\n");
@@ -628,6 +629,50 @@ static int expr_is_float(SymTab *s, Node *n) {
     }
 }
 
+static int expr_is_unsigned(SymTab *s, Node *n) {
+    if (!n) return 0;
+    switch (n->type) {
+    case NODE_IDENT: {
+        int idx = sym_find_idx(s, n->ident);
+        if (idx < 0) return 0;
+        int vt = s->var_type[idx];
+        return vt == TYPE_U8 || vt == TYPE_U16 || vt == TYPE_U32 || vt == TYPE_U64 || vt == TYPE_U128 || vt == TYPE_USIZE;
+    }
+    case NODE_BINARY:
+        return expr_is_unsigned(s, n->binary.left) || expr_is_unsigned(s, n->binary.right);
+    case NODE_UNARY:
+        return expr_is_unsigned(s, n->unary.operand);
+    default: return 0;
+    }
+}
+
+static int expr_is_f32(SymTab *s, Node *n) {
+    if (!n) return 0;
+    switch (n->type) {
+    case NODE_IDENT: {
+        int idx = sym_find_idx(s, n->ident);
+        return (idx >= 0) ? (s->var_type[idx] == TYPE_F32) : 0;
+    }
+    case NODE_BINARY:
+        return expr_is_f32(s, n->binary.left) || expr_is_f32(s, n->binary.right);
+    case NODE_UNARY:
+        return expr_is_f32(s, n->unary.operand);
+    default: return 0;
+    }
+}
+
+static void emit_trunc(Codegen *c, int vt) {
+    switch (vt) {
+        case TYPE_I8: emit(c, "  movsx rax, al\n"); break;
+        case TYPE_U8: emit(c, "  movzx rax, al\n"); break;
+        case TYPE_I16: emit(c, "  movsx rax, ax\n"); break;
+        case TYPE_U16: emit(c, "  movzx rax, ax\n"); break;
+        case TYPE_I32: emit(c, "  movsxd rax, eax\n"); break;
+        case TYPE_U32:
+        case TYPE_F32: emit(c, "  mov eax, eax\n"); break;
+    }
+}
+
 static void gen_expr(Codegen *c, Node *n) {
     if (!n) { emit(c, "  xor rax, rax\n"); return; }
     switch (n->type) {
@@ -649,8 +694,13 @@ static void gen_expr(Codegen *c, Node *n) {
     }
     case NODE_IDENT: {
         int off = sym_find(&c->sym, n->ident);
-        if (off < 0) { break; }
-        emit(c, "  mov rax, qword ptr [rbp - %d]\n", off);
+        if (off < 0) { emit(c, "  xor rax, rax\n"); break; }
+        int idx = sym_find_idx(&c->sym, n->ident);
+        int vt = (idx >= 0) ? c->sym.var_type[idx] : TYPE_I64;
+        if (vt == TYPE_F32)
+            emit(c, "  mov eax, dword ptr [rbp - %d]\n", off);
+        else
+            emit(c, "  mov rax, qword ptr [rbp - %d]\n", off);
         break;
     }
     case NODE_UNARY:
@@ -666,6 +716,9 @@ static void gen_expr(Codegen *c, Node *n) {
         int is_float = (n->binary.left && n->binary.right) &&
                         (expr_is_float(&c->sym, n->binary.left) ||
                          expr_is_float(&c->sym, n->binary.right));
+        int is_u = expr_is_unsigned(&c->sym, n->binary.left) || expr_is_unsigned(&c->sym, n->binary.right);
+        int is_f32 = expr_is_f32(&c->sym, n->binary.left) || expr_is_f32(&c->sym, n->binary.right);
+        const char *fsuf = is_f32 ? "ss" : "sd";
         if (is_float && op <= 3) {
             /* float arithmetic: use SSE */
             gen_expr(c, n->binary.left);
@@ -673,10 +726,10 @@ static void gen_expr(Codegen *c, Node *n) {
             gen_expr(c, n->binary.right);
             emit(c, "  mov rcx, rax\n  pop rdx\n");
             emit(c, "  movq xmm0, rdx\n  movq xmm1, rcx\n");
-            if (op == 0) emit(c, "  addsd xmm0, xmm1\n");
-            else if (op == 1) emit(c, "  subsd xmm0, xmm1\n");
-            else if (op == 2) emit(c, "  mulsd xmm0, xmm1\n");
-            else if (op == 3) emit(c, "  divsd xmm0, xmm1\n");
+            if (op == 0) emit(c, "  adds%s xmm0, xmm1\n", fsuf);
+            else if (op == 1) emit(c, "  subs%s xmm0, xmm1\n", fsuf);
+            else if (op == 2) emit(c, "  muls%s xmm0, xmm1\n", fsuf);
+            else if (op == 3) emit(c, "  divs%s xmm0, xmm1\n", fsuf);
             emit(c, "  movq rax, xmm0\n");
             break;
         }
@@ -687,11 +740,21 @@ static void gen_expr(Codegen *c, Node *n) {
         if (op <= 4) {
             if (op == 0) emit(c, "  mov rax, rdx\n  add rax, rcx\n");
             else if (op == 1) emit(c, "  mov rax, rdx\n  sub rax, rcx\n");
-            else if (op == 2) emit(c, "  mov rax, rdx\n  imul rax, rcx\n");
-            else if (op == 3) emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n");
-            else if (op == 4) emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n  mov rax, rdx\n");
+            else if (op == 2) {
+                if (is_u) emit(c, "  mov rax, rdx\n  mul rcx\n");
+                else emit(c, "  mov rax, rdx\n  imul rax, rcx\n");
+            } else if (op == 3) {
+                if (is_u) emit(c, "  mov rax, rdx\n  xor rdx, rdx\n  div rcx\n");
+                else emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n");
+            } else if (op == 4) {
+                if (is_u) emit(c, "  mov rax, rdx\n  xor rdx, rdx\n  div rcx\n  mov rax, rdx\n");
+                else emit(c, "  mov rax, rdx\n  cqo\n  idiv rcx\n  mov rax, rdx\n");
+            }
         } else if (op <= 10) {
-            static const char *cc[] = {"sete","setne","setl","setle","setg","setge"};
+            const char **cc;
+            const char *cc_signed[] = {"sete","setne","setl","setle","setg","setge"};
+            const char *cc_unsigned[] = {"sete","setne","setb","setbe","seta","setae"};
+            cc = is_u ? cc_unsigned : cc_signed;
             emit(c, "  cmp rdx, rcx\n  %s al\n  movzx rax, al\n", cc[op-5]);
         } else if (op == 11) {
             int l = new_label(c);
@@ -711,7 +774,7 @@ static void gen_expr(Codegen *c, Node *n) {
             else if (op == 14) emit(c, "  mov rax, rdx\n  xor rax, rcx\n");
             else if (op == 15) emit(c, "  mov rax, rdx\n  and rax, rcx\n");
             else if (op == 16) emit(c, "  mov rax, rdx\n  shl rax, cl\n");
-            else if (op == 17) emit(c, "  mov rax, rdx\n  sar rax, cl\n");
+            else if (op == 17) emit(c, "  mov rax, rdx\n  %s rax, cl\n", is_u ? "shr" : "sar");
         } else if (op == 18) {
             int L = new_label(c);
             if (is_float) {
@@ -736,10 +799,11 @@ static void gen_expr(Codegen *c, Node *n) {
     case NODE_CALL: {
         int argc = 0;
         for (Node *a = n->call.args; a; a = a->next) argc++;
+        if (argc > 16) { diag_add(c->diag, 0, SEV_ERROR, 0,0,0, "too many arguments in call (max 16)"); exit(1); }
         if (argc > 0) {
             Node *args[16];
             int i = 0;
-            for (Node *a = n->call.args; a && i < 16; a = a->next) args[i++] = a;
+            for (Node *a = n->call.args; a; a = a->next) args[i++] = a;
             for (int j = i-1; j >= 0; j--) { gen_expr(c, args[j]); emit(c, "  push rax\n"); }
         }
         static const char *arg_regs[] = {"rdi","rsi","rdx","rcx","r8","r9"};
@@ -825,9 +889,10 @@ static void gen_expr(Codegen *c, Node *n) {
         CStructDef *s = &c->structs[si];
         int argc = 0;
         for (Node *a = n->struct_literal.args; a; a = a->next) argc++;
+        if (argc > 16) { diag_add(c->diag, 0, SEV_ERROR, 0,0,0, "too many fields in struct literal (max 16)"); exit(1); }
         Node *args[16];
         int i = 0;
-        for (Node *a = n->struct_literal.args; a && i < 16; a = a->next) args[i++] = a;
+        for (Node *a = n->struct_literal.args; a; a = a->next) args[i++] = a;
         for (int j = i-1; j >= 0; j--) { gen_expr(c, args[j]); emit(c, "  push rax\n"); }
         emit(c, "  mov rdi, %d\n  call malloc\n", s->total_size > 0 ? s->total_size : 8);
         emit(c, "  mov rbx, rax\n");
@@ -974,15 +1039,23 @@ static void gen_stmt(Codegen *c, Node *n) {
         emit(c, "  mov qword ptr [rbp - %d], 0\n", off);
         if (n->let.init) {
             gen_expr(c, n->let.init);
-            emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
             int idx = sym_find_idx(&c->sym, n->let.name);
             if (idx >= 0) {
-                c->sym.is_float[idx] = expr_is_float(&c->sym, n->let.init);
+                if (n->let.type && n->let.type->type == NODE_IDENT) {
+                    ValType vt = get_type_for_name(n->let.type->ident);
+                    if (vt != TYPE_UNKNOWN) {
+                        c->sym.var_type[idx] = vt;
+                        if (vt == TYPE_FLOAT || vt == TYPE_F32) c->sym.is_float[idx] = 1;
+                    }
+                }
+                emit_trunc(c, c->sym.var_type[idx]);
+                c->sym.is_float[idx] = c->sym.is_float[idx] || expr_is_float(&c->sym, n->let.init);
                 /* mark as heap if initialized with struct or enum literal */
                 if (n->let.init->type == NODE_STRUCT_LITERAL ||
                     n->let.init->type == NODE_ENUM_LITERAL)
                     c->sym.is_heap[idx] = 1;
             }
+            emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
         }
         break;
     }
@@ -999,11 +1072,14 @@ static void gen_stmt(Codegen *c, Node *n) {
             emit(c, ".L_skip_free_assign_%d:\n", new_label(c) - 1);
         }
         gen_expr(c, n->assign.rhs);
+        emit_trunc(c, c->sym.var_type[idx]);
         emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
-        /* update heap flag if RHS creates a new heap value */
+        /* update heap flag based on RHS type */
         if (n->assign.rhs && (n->assign.rhs->type == NODE_STRUCT_LITERAL ||
                                n->assign.rhs->type == NODE_ENUM_LITERAL))
             c->sym.is_heap[idx] = 1;
+        else
+            c->sym.is_heap[idx] = 0;
         break;
     }
     case NODE_IF: {
@@ -1019,6 +1095,7 @@ static void gen_stmt(Codegen *c, Node *n) {
     }
     case NODE_WHILE: {
         int lbl_start = new_label(c), lbl_end = new_label(c);
+        if (c->loop_sp >= 64) { diag_add(c->diag, 0, SEV_ERROR, 0, 0, 0, "too many nested loops"); exit(1); }
         c->loop_start[c->loop_sp] = lbl_start;
         c->loop_end[c->loop_sp] = lbl_end;
         c->loop_sp++;
@@ -1062,10 +1139,10 @@ static void gen_stmt(Codegen *c, Node *n) {
             } else if (arm->match_arm.variant && arm->match_arm.payload) {
                 /* variant with payload: check tag */
                 int tag = find_enum_variant_tag(c, arm->match_arm.variant);
-                if (tag < 0) { char buf[256]; snprintf(buf, sizeof(buf), "unknown enum variant '%s' in match", arm->match_arm.variant); diag_add(c->diag, 2009, SEV_ERROR, 0, 0, 0, buf); }
+                if (tag < 0) { char buf[256]; snprintf(buf, sizeof(buf), "unknown enum variant '%s' in match", arm->match_arm.variant); diag_add(c->diag, 2009, SEV_ERROR, 0, 0, 0, buf); exit(1); }
                 emit(c, "  mov rax, qword ptr [rsp]\n");  /* enum ptr */
                 emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
-                emit(c, "  cmp rax, %d\n", tag < 0 ? 0 : tag);
+                emit(c, "  cmp rax, %d\n", tag);
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
                 /* bind payload: extract at offset 8 */
                 int fsize = find_enum_payload_size(c, arm->match_arm.variant, 0);
@@ -1084,10 +1161,10 @@ static void gen_stmt(Codegen *c, Node *n) {
             } else if (arm->match_arm.variant) {
                 /* no payload — check tag */
                 int tag = find_enum_variant_tag(c, arm->match_arm.variant);
-                if (tag < 0) { char buf[256]; snprintf(buf, sizeof(buf), "unknown enum variant '%s' in match", arm->match_arm.variant); diag_add(c->diag, 2009, SEV_ERROR, 0, 0, 0, buf); }
+                if (tag < 0) { char buf[256]; snprintf(buf, sizeof(buf), "unknown enum variant '%s' in match", arm->match_arm.variant); diag_add(c->diag, 2009, SEV_ERROR, 0, 0, 0, buf); exit(1); }
                 emit(c, "  mov rax, qword ptr [rsp]\n");
                 emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
-                emit(c, "  cmp rax, %d\n", tag < 0 ? 0 : tag);
+                emit(c, "  cmp rax, %d\n", tag);
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
                 emit(c, "  add rsp, 8\n");
                 gen_stmt(c, arm->match_arm.body);
@@ -1144,7 +1221,7 @@ static void count_locals(SymTab *s, Node *n) {
     case NODE_CONTINUE:
         break;
     case NODE_COMPREHENSION:
-        if (n->comp.var) sym_add(s, n->comp.var);
+        if (n->comp.var) { sym_add(s, n->comp.var); s->stack_size += 8; }
         count_locals(s, n->comp.map);
         count_locals(s, n->comp.iter);
         if (n->comp.iter_end) count_locals(s, n->comp.iter_end);
@@ -1234,6 +1311,7 @@ static void collect_enums(Codegen *c, Node *prog) {
                 int idx = e->variant_count;
                 strncpy(e->variants[idx], v->match_arm.variant, 63);
                 e->variants[idx][63] = 0;
+                memset(e->payload_sizes[idx], 0, sizeof(e->payload_sizes[idx]));
                 int payload_size = 0;
                 int pcount = 0;
                 for (Node *pld = v->match_arm.payload; pld; pld = pld->next) {
@@ -1294,6 +1372,32 @@ static void gen_fn(Codegen *c, Node *n) {
         }
     }
     emit(c, "  xor rax, rax\n  mov rsp, rbp\n  pop rbp\n  ret\n");
+}
+
+/* Try MIR→LIR→regalloc→asm pipeline for a function. Returns 1 if MIR path was used, 0 if fallback needed. */
+static int codegen_mir_fn(Codegen *c, Node *n) {
+    if (!n || n->type != NODE_FN_DECL) return 0;
+
+    MirFn *mir = mir_build_fn(n, c->diag, NULL);
+    if (!mir) return 0;
+
+    mir_opt(mir);
+
+    LirFn *lir = lir_lower(mir);
+    if (!lir) { free(mir); return 0; }
+
+    regalloc_run(lir);
+
+    emit(c, "\n.section .text\n");
+    const char *name = n->fn.name;
+    if (c->gui_mode && strcmp(name, "main") == 0) name = "clean_main";
+    int is_pub = n->fn.pub || strcmp(n->fn.name, "main") == 0;
+
+    emit_lir_function(c->out, lir, name, lir->num_spills, is_pub);
+
+    free(lir);
+    free(mir);
+    return 1;
 }
 
 static int has_gui_externs(Node *prog) {
@@ -1383,13 +1487,19 @@ int codegen_compile(Node *prog, const char *source_file, const char *output_file
     collect_structs(&cg, prog);
     collect_enums(&cg, prog);
     for (Node *item = prog->next; item; item = item->next) {
-        if (item->type == NODE_FN_DECL) gen_fn(&cg, item);
+        if (item->type == NODE_FN_DECL) {
+            if (!codegen_mir_fn(&cg, item))
+                gen_fn(&cg, item);
+        }
         else if (item->type == NODE_EXTERN_DECL) {
             if (item->ext.pub) emit(&cg, ".globl %s\n", item->ext.name);
         }
         else if (item->type == NODE_IMPL_BLOCK)
             for (Node *m = item->impl_block.methods; m; m = m->next)
-                if (m->type == NODE_FN_DECL) gen_fn(&cg, m);
+                if (m->type == NODE_FN_DECL) {
+                    if (!codegen_mir_fn(&cg, m))
+                        gen_fn(&cg, m);
+                }
     }
 
     emit_strtab(&cg);

@@ -1,6 +1,6 @@
-fn main() -> i32
+fn main() effect -> i64:
     var i = 0
-    while i < 1000000000
+    while i < 1000000000:
         i += 1
     print_int(i)
     return 0

@@ -3,7 +3,7 @@ enum Color:
     Green
     Blue
 
-fn main() effect -> i32:
+fn main() effect -> i64:
     let x = 42
     let y = 10
     print_int(x + y)

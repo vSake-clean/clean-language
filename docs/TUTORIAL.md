@@ -49,7 +49,7 @@ Clean nie używa LLVM. Kompilator sam generuje x86-64 assembly, które jest skł
 | Zero-cost abstrakcje | Nie płacisz za to, czego nie używasz |
 | Deterministyczna pamięć | Brak GC, brak stop-the-world pauz |
 | Własny backend | Zero zależności, pełna kontrola |
-| Prostota | Kompilator w ~1800 liniach C |
+| Prostota | Kompilator w ~5000 liniach C |
 
 ---
 
@@ -104,8 +104,8 @@ Gdy uruchamiasz `clean run`, kompilator:
 Clean używa wcięć do definiowania bloków kodu — zamiast nawiasów `{}`:
 
 ```clean
-fn check(x: i32) -> i32
-    if x > 0
+fn check(x: i64) -> i64:
+    if x > 0:
         return 1          # ← wewnątrz if, 8 spacji od fn
     return 0              # ← w ciele funkcji, 4 spacje od fn
 ```
@@ -123,10 +123,10 @@ let x = 5    # komentarz po kodzie też działa
 
 ```clean
 let a = 42          # dziesiętnie
-let b = 0xFF        # szesnastkowo (parsowane, ale nie jako token — tylko w wyrażeniach?)
+let b = 0xFF        # szesnastkowo
 ```
 
-W obecnej wersji literał `0x` może nie być wspierany na poziomie lexera — sprawdź. Liczby całkowite są 64-bitowe (`i64`).
+Liczby całkowite są 64-bitowe (`i64`).
 
 ### Stringi
 
@@ -177,7 +177,7 @@ count += 5          # też OK
 
 ```clean
 let mut i = 0
-while i < 10
+while i < 10:
     print_int(i)
     i += 1
 ```
@@ -187,7 +187,7 @@ while i < 10
 Możesz dodać typ po dwukropku (opcjonalne — typ jest wnioskowany):
 
 ```clean
-let x: i32 = 42
+let x: i64 = 42
 let name: str = "Alice"
 ```
 
@@ -201,9 +201,9 @@ Dostępne typy:
 Zmienne są widoczne od miejsca deklaracji do końca bloku:
 
 ```clean
-fn test()
+fn test():
     let x = 1
-    if true
+    if true:
         let y = 2       # y istnieje tylko w tym bloku
         print_int(y)
     print_int(x)        # OK — x wciąż w zasięgu
@@ -217,21 +217,21 @@ fn test()
 ### Deklaracja
 
 ```clean
-fn nazwa(parametr: Typ) -> TypZwracany
+fn nazwa(parametr: Typ) -> TypZwracany:
     ciało
 ```
 
 ### Funkcja bez parametrów
 
 ```clean
-fn greet()
+fn greet():
     print_str("Hello!\n", 7)
 ```
 
 ### Funkcja z parametrami i zwracaniem wartości
 
 ```clean
-fn add(a: i64, b: i64) -> i64
+fn add(a: i64, b: i64) -> i64:
     return a + b
 ```
 
@@ -240,7 +240,7 @@ fn add(a: i64, b: i64) -> i64
 Jeśli funkcja wywołuje operacje wejścia/wyjścia (print_int, read_int, input, sleep, itp.), musi oznaczyć to słowem `effect`:
 
 ```clean
-fn show_sum(x: i64, y: i64) effect
+fn show_sum(x: i64, y: i64) effect:
     let sum = x + y
     print_int(sum)
 ```
@@ -250,7 +250,7 @@ fn show_sum(x: i64, y: i64) effect
 ### Funkcja zwracająca i mająca efekty
 
 ```clean
-fn read_and_double() effect -> i64
+fn read_and_double() effect -> i64:
     let val = read_int()
     return val * 2
 ```
@@ -258,10 +258,10 @@ fn read_and_double() effect -> i64
 ### Wiele parametrów
 
 ```clean
-fn multiply(a: i64, b: i64, c: i64) -> i64
+fn multiply(a: i64, b: i64, c: i64) -> i64:
     return a * b * c
 
-fn main()
+fn main():
     let result = multiply(2, 3, 4)
     print_int(result)           # 24
 ```
@@ -271,22 +271,22 @@ fn main()
 Funkcje mogą wołać inne funkcje zdefiniowane w tym samym pliku:
 
 ```clean
-fn square(x: i64) -> i64
+fn square(x: i64) -> i64:
     return x * x
 
-fn sum_of_squares(a: i64, b: i64) -> i64
+fn sum_of_squares(a: i64, b: i64) -> i64:
     return square(a) + square(b)
 
-fn main()
+fn main():
     print_int(sum_of_squares(3, 4))    # 25
 ```
 
 ### Funkcja main
 
-`main` to punkt wejścia programu. Powinna zwracać `i32` (kod wyjścia):
+`main` to punkt wejścia programu. Powinna zwracać `i64` (kod wyjścia):
 
 ```clean
-fn main() -> i32
+fn main() -> i64:
     print_int(42)
     return 0
 ```
@@ -301,33 +301,33 @@ Kod wyjścia 0 oznacza sukces. Zwróć 1 dla błędu.
 
 ```clean
 let x = 10
-if x > 5
+if x > 5:
     print_str("x is greater than 5\n", 22)
 ```
 
 ### if / elif / else
 
 ```clean
-fn classify(score: i64) -> i64
-    if score >= 90
+fn classify(score: i64) -> i64:
+    if score >= 90:
         return 1
-    elif score >= 75
+    elif score >= 75:
         return 2
-    elif score >= 50
+    elif score >= 50:
         return 3
-    else
+    else:
         return 4
 ```
 
 Warunki mogą być dowolnie zagnieżdżane:
 
 ```clean
-if x > 0
-    if x > 100
+if x > 0:
+    if x > 100:
         print_str("large\n", 6)
-    else
+    else:
         print_str("small positive\n", 15)
-else
+else:
     print_str("negative or zero\n", 17)
 ```
 
@@ -339,7 +339,7 @@ else
 
 ```clean
 var i = 0
-while i < 5
+while i < 5:
     print_int(i)
     i += 1
 # wypisze: 0 1 2 3 4
@@ -350,7 +350,7 @@ while i < 5
 `for i in start..end` to cukier składniowy — desugaruje do `let mut i = start; while i < end { body; i += 1 }`:
 
 ```clean
-for i in 0..5
+for i in 0..5:
     print_int(i)
 # wypisze: 0 1 2 3 4
 ```
@@ -361,8 +361,8 @@ Przerywa pętlę:
 
 ```clean
 var i = 0
-while true
-    if i >= 5
+while true:
+    if i >= 5:
         break
     print_int(i)
     i += 1
@@ -373,8 +373,8 @@ while true
 Pomija resztę iteracji i przechodzi do następnej:
 
 ```clean
-for i in 0..10
-    if i % 2 == 0
+for i in 0..10:
+    if i % 2 == 0:
         continue
     print_int(i)    # wypisze tylko nieparzyste: 1 3 5 7 9
 ```
@@ -382,8 +382,8 @@ for i in 0..10
 ### Zagnieżdżone pętle
 
 ```clean
-for i in 0..3
-    for j in 0..3
+for i in 0..3:
+    for j in 0..3:
         let product = i * j
         print_int(product)
 ```
@@ -401,6 +401,18 @@ for i in 0..3
 | `*` | Mnożenie | `5 * 3` | 15 |
 | `/` | Dzielenie całkowite | `7 / 3` | 2 |
 | `%` | Modulo (reszta) | `7 % 3` | 1 |
+| `**` | Potęgowanie | `2 ** 4` | 16 |
+
+### Bitowe
+
+| Operator | Działanie | Przykład | Wynik |
+|----------|-----------|----------|-------|
+| `\|` | OR | `5 \| 2` | 7 |
+| `^` | XOR | `5 ^ 3` | 6 |
+| `&` | AND | `5 & 3` | 1 |
+| `<<` | Przesunięcie w lewo | `1 << 3` | 8 |
+| `>>` | Przesunięcie w prawo | `16 >> 2` | 4 |
+| `~` | NOT bitowy | `~0` | -1 |
 
 ### Porównania
 
@@ -434,14 +446,20 @@ for i in 0..3
 
 Od najwyższego do najniższego:
 
-1. `not`, `-` (unarny)
-2. `*`, `/`, `%`
-3. `+`, `-`
-4. `<`, `<=`, `>`, `>=`
-5. `==`, `!=`
-6. `and`
-7. `or`
-8. `|>` (pipe)
+1. `**` (potęgowanie, prawostronne)
+2. `not`, `-` (unarny), `~` (bitowy NOT)
+3. `*`, `/`, `%`
+4. `+`, `-`
+5. `<<`, `>>`
+6. `&`
+7. `^`
+8. `|`
+9. `<`, `<=`, `>`, `>=`
+10. `==`, `!=`
+11. `and`
+12. `or`
+13. `|>` (pipe)
+14. `=` `+=` `-=` `*=` `/=` (przypisanie, prawostronne)
 
 Użyj nawiasów do wymuszenia kolejności:
 
@@ -513,13 +531,13 @@ let result = 10 |> add(5)   # add(10, 5) = 15
 ### Praktyczny przykład
 
 ```clean
-fn double(x: i64) -> i64
+fn double(x: i64) -> i64:
     return x * 2
 
-fn triple(x: i64) -> i64
+fn triple(x: i64) -> i64:
     return x * 3
 
-fn main()
+fn main():
     5 |> double |> triple |> print_int    # (5*2)*3 = 30
 ```
 
@@ -579,7 +597,7 @@ print_str(name, len)    # Bob
 ### Łączenie operacji na stringach
 
 ```clean
-fn main()
+fn main():
     let name = input("What is your name? ")
     let len = strlen(name)
     print_str("Hello, ", 7)
@@ -596,7 +614,7 @@ struct Person
     name
     age
 
-fn main()
+fn main():
     let p = Person(input("Name: "), 30)
     print_str(p.name, strlen(p.name))
 ```
@@ -621,7 +639,7 @@ Pola nie mają typów — obecnie wszystkie są 8-bajtowe.
 let p = Point(10, 20)
 ```
 
-Struktura jest alokowana na stercie przez `brk` (syscall 12). Zwraca wskaźnik do zaalokowanego bloku.
+Struktura jest alokowana na stercie przez `malloc`. Zwraca wskaźnik do zaalokowanego bloku.
 
 ### Dostęp do pól
 
@@ -647,7 +665,7 @@ struct Rectangle
     width
     height
 
-fn main()
+fn main():
     let r = Rectangle(0, 0, 800, 600)
     print_int(r.width)     # 800
     print_int(r.height)    # 600
@@ -660,7 +678,7 @@ struct Line
     start
     end
 
-fn main()
+fn main():
     let l = Line(Point(0, 0), Point(10, 20))
     print_int(l.start.x)   # dostęp przez łańcuch . (kropka)
     print_int(l.end.y)     # 20
@@ -671,14 +689,14 @@ Każde pole to wskaźnik, więc `l.start` ładuje wskaźnik do `Point`, a drugie
 ### Funkcje przyjmujące struktury
 
 ```clean
-fn print_point(p)
+fn print_point(p):
     print_str("(", 1)
     print_int(p.x)
     print_str(", ", 2)
     print_int(p.y)
     print_str(")", 1)
 
-fn main()
+fn main():
     let p = Point(3, 7)
     print_point(p)
 ```
@@ -905,6 +923,30 @@ assert(y)           # → OK, program kontynuuje
 
 Działa tylko w trybie non-GUI.
 
+### print_float(n)
+
+Wypisuje liczbę zmiennoprzecinkową.
+
+```clean
+print_float(3.14)    # → 3.140000
+```
+
+### string_clone(str, len)
+
+Tworzy kopię stringa przez malloc.
+
+```clean
+let cloned = string_clone(original, strlen(original))
+```
+
+### string_concat(a, b)
+
+Łączy dwa stringi w jeden (malloc'owany). Długości są obliczane automatycznie.
+
+```clean
+let msg = string_concat("Hello, ", "world")
+```
+
 ### get_frame_ptr(data, idx, fsize)
 
 Oblicza wskaźnik do ramki `idx` w buforze: `data + idx * fsize`.
@@ -979,7 +1021,7 @@ show_cursor()
 ### Przykład: kolorowy terminal
 
 ```clean
-fn main()
+fn main():
     clear_screen()
     set_fg(2)                       # zielony
     print_str("Success!\n", 9)
@@ -1022,12 +1064,25 @@ print_int(x)        # OK — x wciąż żyje
 print_int(x)        # OK — x wciąż żyje
 ```
 
+### move/ref/mut_ref — jawne operacje własnościowe
+
+Słowa kluczowe `move`, `ref`, `mut_ref` to jawne operacje na własności i pożyczkach:
+
+- `move x` — jawnie przenosi własność (oznacza intencję, kod jest no-op)
+- `ref x` — tworzy niezmienną pożyczkę (`NODE_BORROW`)
+- `mut_ref x` — tworzy zmienną pożyczkę (`NODE_MUT_BORROW`)
+
+```clean
+let x = 10
+let y = move x      # jawny move, x staje się nieaktywny
+```
+
 ### Purity checking (effect)
 
 Jeśli funkcja jest oznaczona jako czysta (brak `effect`), kompilator ostrzeże, jeśli wywołasz w niej funkcję I/O:
 
 ```clean
-fn pure() -> i64     # brak 'effect'
+fn pure() -> i64:  # brak 'effect'
     print_int(42)    # OSTRZEŻENIE E1003: call to impure function
     return 0
 ```
@@ -1035,7 +1090,7 @@ fn pure() -> i64     # brak 'effect'
 Popraw:
 
 ```clean
-fn impure() effect -> i64
+fn impure() effect -> i64:
     print_int(42)    # OK
     return 0
 ```
@@ -1055,17 +1110,17 @@ Słowo kluczowe `effect` w sygnaturze funkcji oznacza, że funkcja ma efekty ubo
 ### Przykłady
 
 ```clean
-fn pure_calc(x: i64) -> i64      # czysta funkcja
+fn pure_calc(x: i64) -> i64:  # czysta funkcja
     return x * x
 
-fn side_effect() effect          # nieczysta
+fn side_effect() effect:  # nieczysta
     print_int(42)
 
-fn mixed() effect -> i64         # nieczysta, ale też zwraca wartość
+fn mixed() effect -> i64:  # nieczysta, ale też zwraca wartość
     print_str("calculating...", 15)
     return 99
 
-fn main() -> i32
+fn main():
     # main może wołać zarówno czyste jak i nieczyste funkcje
     let r = pure_calc(5)         # OK
     side_effect()                # OK
@@ -1096,7 +1151,7 @@ extern fn nazwa(parametry) -> typ
 ```clean
 extern fn write(fd: i64, buf, len: i64) -> i64
 
-fn main()
+fn main():
     let msg = "Hello from extern!\n"
     write(1, msg, 19)
     return 0
@@ -1169,7 +1224,7 @@ extern fn clgui_event(idx: i64) -> i64
 extern fn clgui_event_key() -> i64
 extern fn sleep(sec: i64)
 
-fn main() effect -> i32
+fn main() effect -> i64:
     let win = clgui_window(400, 300)
     clgui_title(win, "Calculator")
     let bg = clgui_color(235, 235, 235)
@@ -1178,11 +1233,11 @@ fn main() effect -> i32
     clgui_fill(win, bg)
     clgui_draw_str(win, 10, 30, "Click a key, or ESC to quit")
 
-    while true
+    while true:
         let ev = clgui_event(win)
-        if ev == 2           # KeyPress
+        if ev == 2: # KeyPress
             let key = clgui_event_key()
-            if key == 65307  # ESC
+            if key == 65307: # ESC
                 break
             clgui_draw_str(win, 10, 60, "Key pressed!")
             clgui_draw_int(win, 10, 80, key)
@@ -1211,13 +1266,13 @@ clean run program.cl arg1 arg2 arg3
 Wewnątrz programu możesz użyć `extern fn` do dostępu do `argc`/`argv`:
 
 ```clean
-extern fn main(argc: i64, argv) -> i32
+extern fn main(argc: i64, argv) -> i64
 
-fn real_main(argc: i64, argv) effect
+fn real_main(argc: i64, argv) effect:
     print_int(argc)
     print_str(argv, strlen(argv))
 
-fn main() -> i32
+fn main() -> i64:
     # obecnie main nie otrzymuje argc/argv automatycznie
     return 0
 ```
@@ -1250,7 +1305,7 @@ process(x)
 ### Debugowanie pętli
 
 ```clean
-for i in 0..10
+for i in 0..10:
     let val = compute(i)
     inspect(val)    # zobaczysz każdą wartość
 ```
@@ -1296,17 +1351,16 @@ W trybie GUI `inspect` i `assert` nie są dostępne (są emitowane tylko dla non
 ## 24. Znane ograniczenia
 
 ### Składnia i parser
-- `:` po `while`/`if`/`fn` jest opcjonalny (brak błędu jeśli pominięty)
+- `:` po `while`/`if`/`fn` jest wymagany
 - Token pod caret w błędach może być źle wyrównany jeśli linia ma tabulatory lub Unicode
 - Brak ostrzeżenia o nieużywanych zmiennych
 
 ### System typów
 - Wszystkie zmienne na stosie (brak optymalizacji rejestrów)
 - Brak stringów (*u8, usize, etc.)
-- Brak enumów
-- Brak typów poza i32/i64/str/bool
+- Brak typów poza i64/bool/str/float
 - Struktury: rozpoznawanie pól po nazwie we wszystkich strukturach (może znaleźć złe przesunięcie)
-- Brak Option\<T\> / Result\<T, E\>
+- Option\<T\> i Result\<T, E\> istnieją w prelude.cl ale wsparcie kompilatora jest częściowe
 - `assert` abort(1) — brak własnej wiadomości
 
 ### Funkcje
@@ -1329,15 +1383,15 @@ W trybie GUI `inspect` i `assert` nie są dostępne (są emitowane tylko dla non
 ### 25.1 Silnia (factorial)
 
 ```clean
-fn factorial(n: i64) -> i64
+fn factorial(n: i64) -> i64:
     let mut result = 1
     let mut i = 1
-    while i <= n
+    while i <= n:
         result = result * i
         i = i + 1
     return result
 
-fn main() -> i32
+fn main() -> i64:
     let n = 10
     print_int(factorial(n))
     return 0
@@ -1346,50 +1400,50 @@ fn main() -> i32
 ### 25.2 Ciąg Fibonacciego
 
 ```clean
-fn fibonacci(n: i64) -> i64
-    if n <= 1
+fn fibonacci(n: i64) -> i64:
+    if n <= 1:
         return n
     var a = 0
     var b = 1
     var i = 2
-    while i <= n
+    while i <= n:
         let temp = a + b
         a = b
         b = temp
         i += 1
     return b
 
-fn main()
-    for i in 0..20
+fn main():
+    for i in 0..20:
         print_int(fibonacci(i))
 ```
 
 ### 25.3 Gra w zgadywanie liczby
 
 ```clean
-fn main() effect
+fn main() effect:
     let secret = 42
     print_str("Guess the number (0-100):\n", 27)
 
-    while true
+    while true:
         print_str("Your guess: ", 12)
         let guess = read_int()
 
-        if guess == secret
+        if guess == secret:
             print_str("Correct!\n", 9)
             break
-        elif guess < secret
+        elif guess < secret:
             print_str("Too low!\n", 9)
-        else
+        else:
             print_str("Too high!\n", 10)
 ```
 
 ### 25.4 Odliczanie rakiety
 
 ```clean
-fn main() effect
+fn main() effect:
     var i = 10
-    while i >= 0
+    while i >= 0:
         print_int(i)
         sleep(1)
         i -= 1
@@ -1399,57 +1453,53 @@ fn main() effect
 ### 25.5 Tabliczka mnożenia
 
 ```clean
-fn main()
+fn main():
     var i = 1
-    while i <= 10
+    while i <= 10:
         var j = 1
-        while j <= 10
+        while j <= 10:
             print_int(i * j)
             j += 1
         i += 1
 ```
 
-### 25.6 Sprawdzanie palindromu (przez input)
+### 25.6 Liczby pierwsze (sito Eratostenesa)
 
 ```clean
-fn is_palindrome(s, len: i64) -> i64
-    var i = 0
-    while i < len / 2
-        let left_byte = s + i
-        let right_byte = s + len - 1 - i
-        if left_byte != right_byte
+fn is_prime(n: i64) -> i64:
+    if n < 2:
+        return 0
+    var i = 2
+    while i * i <= n:
+        if n % i == 0:
             return 0
         i += 1
     return 1
 
-fn main() effect
-    let word = input("Enter a word: ")
-    let len = strlen(word)
-    let result = is_palindrome(word, len)
-    if result
-        print_str("It's a palindrome!\n", 19)
-    else
-        print_str("Not a palindrome.\n", 18)
+fn main():
+    for i in 2..50:
+        if is_prime(i):
+            print_int(i)
 ```
 
 ### 25.7 Animacja ASCII z kolorami
 
 ```clean
-fn main() effect
+fn main() effect:
     hide_cursor()
     var frame = 0
-    while frame < 100
+    while frame < 100:
         clear_screen()
         set_fg(frame % 7 + 1)
         let mut y = 0
-        while y < 10
+        while y < 10:
             let mut x = 0
-            while x < 20
+            while x < 20:
                 let val = (x + y + frame) % 10
                 print_int(val)
                 x += 1
             y += 1
-        sleep(0.1)   # 100ms
+        sleep(1)   # 1000ms (sleep przyjmuje i64, sekundy)
         frame += 1
     show_cursor()
 ```
@@ -1461,12 +1511,12 @@ struct Point
     x
     y
 
-fn distance(p1, p2) -> i64
+fn distance(p1, p2) -> i64:
     let dx = p1.x - p2.x
     let dy = p1.y - p2.y
     return dx * dx + dy * dy
 
-fn main()
+fn main():
     let a = Point(0, 0)
     let b = Point(3, 4)
     let d = distance(a, b)
@@ -1476,7 +1526,7 @@ fn main()
 ### 25.9 Użycie calc_expr
 
 ```clean
-fn main() effect
+fn main() effect:
     print_str("Enter expression (e.g. 3 + 4 * 2):\n", 36)
     let result = calc_expr()
     print_str("Result: ", 8)
@@ -1486,11 +1536,11 @@ fn main() effect
 ### 25.10 Pomiar czasu wykonania
 
 ```clean
-fn main() effect
+fn main() effect:
     let start = time_ms()
     var sum = 0
     var i = 0
-    while i < 1000000
+    while i < 1000000:
         sum = sum + i
         i = i + 1
     let elapsed = time_ms() - start
@@ -1550,39 +1600,40 @@ var y = 0               # mutowalna
 let mut z = 10          # też mutowalna
 
 # Funkcje
-fn add(a: i64, b: i64) -> i64
+fn add(a: i64, b: i64) -> i64:
     return a + b
 
-fn greet(n) effect -> str
+fn greet(n) effect -> str:
     print_str("Hi ", 3)
     return n
 
 # Warunki
-if x > 0
+if x > 0:
     ...
-elif x == 0
+elif x == 0:
     ...
-else
+else:
     ...
 
 # Pętle
-while cond
+while cond:
     ...
 
-for i in 0..10
+for i in 0..10:
     ...
 
 # break / continue
-while true
-    if done
+while true:
+    if done:
         break
-    if skip
+    if skip:
         continue
 
 # Operatory
 + - * / % == != < <= > >=
 and or not
-+= -= *= /=
++= -= *= /= **
+| ^ & << >> ~
 
 # Pipe
 x |> f               # f(x)
@@ -1612,6 +1663,7 @@ extern fn write(fd: i64, buf, len: i64) -> i64
 
 # Wbudowane
 print_int(n)
+print_float(n)
 print_str(ptr, len)
 read_int()
 input(prompt)
@@ -1628,9 +1680,16 @@ set_bg(n)
 hide_cursor()
 show_cursor()
 get_frame_ptr(data, idx, fsize)
+string_clone(str, len)
+string_concat(a, b)
+
+# Own/borrow
+move x
+ref x
+mut_ref x
 
 # Funkcja main
-fn main() -> i32
+fn main() -> i64:
     ...
     return 0
 ```

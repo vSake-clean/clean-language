@@ -9,6 +9,7 @@ void diag_init(Diag *d, const char *filename, const char *source, size_t source_
     d->source_len = source_len;
     d->error_count = 0;
     d->warn_count = 0;
+    d->seen_error = 0;
 }
 
 void diag_add(Diag *d, int code, int sev, size_t line, size_t col, size_t len, const char *msg) {
@@ -21,10 +22,11 @@ void diag_add(Diag *d, int code, int sev, size_t line, size_t col, size_t len, c
     e->len = len;
     e->msg = msg ? strdup(msg) : NULL;
     if (sev == SEV_WARN) d->warn_count++;
+    if (sev == SEV_ERROR) d->seen_error = 1;
 }
 
 int diag_has_errors(Diag *d) {
-    return d->error_count > d->warn_count;
+    return d->seen_error;
 }
 
 int diag_has_any(Diag *d) {

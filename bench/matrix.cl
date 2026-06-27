@@ -1,11 +1,11 @@
-fn main() -> i32
+fn main() effect -> i64:
     var i = 0
-    while i < 100
+    while i < 100:
         var j = 0
-        while j < 100
+        while j < 100:
             var k = 0
             var sum = 0
-            while k < 100
+            while k < 100:
                 sum += i * k + k * j
                 k += 1
             j += 1

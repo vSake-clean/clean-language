@@ -42,14 +42,23 @@ void parser_init(Parser *p, const char *filename, const char *source, Diag *diag
     p->lambdas_tail = &p->lambdas;
 }
 
-void parser_free(Parser *p) { (void)p; }
+void parser_free(Parser *p) {
+    lexer_free(&p->lexer);
+    Node *l = p->lambdas;
+    while (l) {
+        Node *next = l->next;
+        node_free(l);
+        l = next;
+    }
+    p->lambdas = NULL;
+}
 
 static Token peek(Parser *p) { return lexer_peek(&p->lexer); }
 static Token next(Parser *p) { return lexer_next(&p->lexer); }
 
 static int match(Parser *p, TokenType type) {
     Token t = peek(p);
-    if (t.type == type) { next(p); return 1; }
+    if (t.type == type) { next(p); lexer_free_token(&t); return 1; }
     return 0;
 }
 
@@ -66,6 +75,7 @@ static Token consume(Parser *p, TokenType type, const char *what) {
     if (t.type != type) {
         diag_add(p->diag, 2000, SEV_ERROR, t.line, t.col, t.len, what);
         p->error_count++;
+        memset(&t, 0, sizeof(t));
     }
     return t;
 }
@@ -392,9 +402,10 @@ static Node *parse_item(Parser *p, int is_pub) {
         n->impl_block.for_type = NULL;
         if (peek(p).type == TOK_FOR) {
             next(p);
+            Token ident_tok = consume(p, TOK_IDENT, "expected trait name after 'for'");
             n->impl_block.for_type = node_new(NODE_IDENT);
-            n->impl_block.for_type->ident = strdup(peek(p).text);
-            next(p);
+            n->impl_block.for_type->ident = ident_tok.text;
+            ident_tok.text = NULL;
         }
         n->src_line = t.line; n->src_col = t.col;
         n->impl_block.methods = NULL;
