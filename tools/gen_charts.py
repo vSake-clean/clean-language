@@ -42,20 +42,29 @@ def make_chart(data, title, ylabel, filename, highlight_clean=True):
     
     bars = ax.bar(x, values, width, color=colors, edgecolor='white', linewidth=0.5)
     
+    suffix = ylabel.split('|')[-1] if '|' in ylabel else 's'
     for bar, val in zip(bars, values):
-        if val >= 10:
+        if val >= 100:
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.1f}s', ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    f'{val:.1f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+        elif val >= 10:
+            ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
+                    f'{val:.1f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
         elif val >= 1:
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.2f}s', ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    f'{val:.2f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
         else:
             ax.text(bar.get_x() + bar.get_width()/2., bar.get_height(),
-                    f'{val:.2f}s', ha='center', va='bottom', fontsize=9, fontweight='bold')
+                    f'{val:.2f}{suffix}', ha='center', va='bottom', fontsize=9, fontweight='bold')
+    
+    # add dashed baseline at 1.0 for relative-performance charts
+    has_baseline = any(v == 1.0 or ('|' in ylabel) for v in values)
+    if has_baseline:
+        ax.axhline(y=1.0, color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
     
     ax.set_xticks(x)
     ax.set_xticklabels(labels, rotation=25, ha='right', fontsize=9)
-    ax.set_ylabel(ylabel, fontsize=11)
+    ax.set_ylabel(ylabel.split('|')[0] if '|' in ylabel else ylabel, fontsize=11)
     ax.set_title(title, fontsize=13, fontweight='bold', pad=12)
     ax.set_axisbelow(True)
     ax.yaxis.grid(True, linestyle='--', alpha=0.3)
@@ -72,14 +81,14 @@ benchmarks = [
     {
         'file': 'bench/count_bench.png',
         'title': 'Count-to-1-billion (pusta pętla, 10⁹ iteracji)',
-        'ylabel': 'Czas (s) — mniej = lepiej',
+        'ylabel': 'Wydajność względem C (-O0) (×) — więcej = lepiej|×',
         'data': [
-            ('Clean', 1.10),
-            ('Clean (bez rej.)', 7.30),
-            ('C (-O0)', 3.65),
-            ('PHP 8.4', 6.97),
-            ('Ruby 3.3', 32.52),
-            ('Python 3.13', 156.32),
+            ('Clean', 3.65/1.10),
+            ('C (-O0)', 1.00),
+            ('Clean (bez rej.)', 3.65/7.30),
+            ('PHP 8.4', 3.65/6.97),
+            ('Ruby 3.3', 3.65/32.52),
+            ('Python 3.13', 3.65/156.32),
         ],
     },
     {
