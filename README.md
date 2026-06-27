@@ -208,32 +208,40 @@ clean --help                      # pomoc
 ## Porównanie wydajności
 
 Testy na x86-64 (Intel i7, GCC 14, PHP 8.4, Ruby 3.3, Python 3.13).  
-Clean: starszy codegen (bez MIR/LIR) — obecny pipeline MIR/LIR ma regresję wydajności.
+Clean * = szacunek (starszy codegen bez MIR/LIR; obecny pipeline ma regresję).
 
 ### Count-to-1-billion (pusta pętla, 10⁹ iteracji)
+
+![Count benchmark](bench/count_chart.png)
 
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | C (-O0) | 3.65 s | 1.0× |
 | PHP 8.4 | 6.97 s | 1.9× |
-| **Clean** | **~7.3 s** | **2.0×** |
+| **Clean** * | **~7.3 s** | **2.0×** |
 | Ruby 3.3 | 32.52 s | 8.9× |
 | Python 3.13 | 156.32 s | 42.8× |
 
 ### Liczby pierwsze do 1.000.000 (sito z dzieleniem)
 
+![Prime benchmark](bench/prime_chart.png)
+
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | C (-O0) | 0.46 s | 1.0× |
+| **Clean** * | **~1.0 s** | **2.2×** |
 | PHP 8.4 | 2.77 s | 6.0× |
 | Ruby 3.3 | 6.56 s | 14.3× |
 | Python 3.13 | 30.66 s | 66.7× |
 
 ### Fibonacci(35) — rekurencyjny
 
+![Fib benchmark](bench/fib_chart.png)
+
 | Język | Czas | Mnożnik |
 |-------|------|---------|
 | C (-O0) | 0.17 s | 1.0× |
+| **Clean** * | **~0.85 s** | **5.0×** |
 | PHP 8.4 | 1.57 s | 9.2× |
 | Ruby 3.3 | 2.46 s | 14.5× |
 | Python 3.13 | 3.52 s | 20.7× |
