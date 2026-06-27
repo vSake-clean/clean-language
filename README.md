@@ -14,7 +14,7 @@
 | Składnia | Wcięcia zamiast `{}` i `;` — jak Python, ale kompilowany do natywnego kodu |
 | Wydajność | Zero-cost abstrakcje, deterministyczna alokacja, brak GC |
 | Bezpieczeństwo | Kompilator blokuje use-after-move, data races na poziomie borrow checkera |
-| Szybkość | Natywny kod x86-64 — count-to-1-billion w 7s (Python: 132s) |
+| Szybkość | Natywny kod x86-64 — count-to-1-billion w 7s (Python: 156s, Ruby: 33s) |
 
 ---
 
@@ -205,13 +205,76 @@ clean --help                      # pomoc
 
 ---
 
-## Porównanie wydajności (count-to-1-billion)
+## Porównanie wydajności
 
-| Język | Czas |
-|-------|------|
-| Python | 132 s |
-| C (-O0) | 3.6 s |
-| **Clean** | **7.3 s** |
+Testy na x86-64 (Intel i7, GCC 14, PHP 8.4, Ruby 3.3, Python 3.13).  
+Clean: starszy codegen (bez MIR/LIR) — obecny pipeline MIR/LIR ma regresję wydajności.
+
+### Count-to-1-billion (pusta pętla, 10⁹ iteracji)
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| C (-O0) | 3.65 s | 1.0× |
+| PHP 8.4 | 6.97 s | 1.9× |
+| **Clean** | **~7.3 s** | **2.0×** |
+| Ruby 3.3 | 32.52 s | 8.9× |
+| Python 3.13 | 156.32 s | 42.8× |
+
+### Liczby pierwsze do 1.000.000 (sito z dzieleniem)
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| C (-O0) | 0.46 s | 1.0× |
+| PHP 8.4 | 2.77 s | 6.0× |
+| Ruby 3.3 | 6.56 s | 14.3× |
+| Python 3.13 | 30.66 s | 66.7× |
+
+### Fibonacci(35) — rekurencyjny
+
+| Język | Czas | Mnożnik |
+|-------|------|---------|
+| C (-O0) | 0.17 s | 1.0× |
+| PHP 8.4 | 1.57 s | 9.2× |
+| Ruby 3.3 | 2.46 s | 14.5× |
+| Python 3.13 | 3.52 s | 20.7× |
+
+---
+
+## Inne porównania
+
+### Czas nauki (średnio, od zera do produktywnego)
+
+| Język | Czas | Uwagi |
+|-------|------|-------|
+| Python | 2–4 tyg. | Najprostsza składnia, ogromna społeczność |
+| PHP | 3–6 tyg. | Niski próg wejścia, dużego projektu wymaga frameworka |
+| Ruby | 4–8 tyg. | Elegancki, ale wymaga zrozumienia meta-programowania |
+| Clean | 6–12 tyg. | Ownership/borrowing jak Rust — wymaga zmiany myślenia o pamięci |
+| C | 8–16 tyg. | Manualne zarządzanie pamięcią, wskaźniki, braki w standardowej bibliotece |
+
+### Binarka: rozmiar pliku (count-to-1-billion)
+
+| Język | Rozmiar |
+|-------|---------|
+| Clean | ~3 KB |
+| C (-O0) | ~16 KB |
+| PHP | ~7 KB (skrypt) |
+| Ruby | ~64 B (skrypt) |
+| Python | ~64 B (skrypt) |
+
+Clean produkuje natywne ELF bez zewnętrznych zależności (static linked).
+
+### Cechy języka w pigułce
+
+| Cecha | Clean | C | Python | PHP | Ruby |
+|-------|-------|---|--------|-----|------|
+| Kompilowany | ✅ Natywny x86-64 | ✅ | ❌ Interpretowany | ❌ Interpretowany | ❌ Interpretowany |
+| Typowanie | Statyczne z inferencją | Statyczne | Dynamiczne | Dynamiczne | Dynamiczne |
+| Zarządzanie pamięcią | Ownership/Borrowing | Manualne (malloc/free) | GC | GC | GC |
+| Null safety | ✅ Brak null | ❌ NULL wszędzie | ❌ None | ❌ null | ❌ nil |
+| Składnia | Wcięcia (jak Python) | Nawiasy klamrowe | Wcięcia | $ + nawiasy | def/end |
+| Niskopoziomowy | ✅ ASM inline, wskaźniki | ✅ Pełna kontrola | ❌ | ❌ | ❌ |
+| GUI | ✅ X11 przez clgui.c | ✅ Biblioteki | ✅ Tk/Qt | ❌ | ✅ Tk |
 
 ---
 
@@ -225,6 +288,15 @@ Dostępne przykłady w `examples/`:
 | `features.cl` | Demonstruje składnię: funkcje, pętle, struct, pipe, comprehensions |
 
 Uruchom: `clean run examples/nazwa.cl`
+
+Benchmarki w `bench/`:
+
+| Plik | Opis |
+|------|------|
+| `count.cl` / `.c` / `.py` / `.php` / `.rb` | Count-to-1-billion |
+| `prime.cl` / `.c` / `.py` / `.php` / `.rb` | Liczby pierwsze do 1M |
+| `fib.cl` / `.c` / `.py` / `.php` / `.rb` | Fib(35) rekurencyjnie |
+| `matrix.cl` | Mnożenie macierzy 100×100×100 |
 
 ## Struktura projektu
 

@@ -1,6 +1,1 @@
-<?php
-function fib($n) {
-    if ($n < 2) return $n;
-    return fib($n-1) + fib($n-2);
-}
-echo fib(35) . "\n";
+<?php function fib($n) { return $n < 2 ? $n : fib($n-1) + fib($n-2); } echo fib(35)."\n";
