@@ -294,6 +294,8 @@ Brak GC = Clean nie pauzuje na zbieranie śmieci, alokacja malloc jest determini
 
 ### Czas nauki (średnio, od zera do produktywnego)
 
+![Learning time](bench/learn_bench.png)
+
 | Język | Czas | Uwagi |
 |-------|------|-------|
 | Python | 2–4 tyg. | Najprostsza składnia, ogromna społeczność |
@@ -303,6 +305,8 @@ Brak GC = Clean nie pauzuje na zbieranie śmieci, alokacja malloc jest determini
 | C | 8–16 tyg. | Manualne zarządzanie pamięcią, wskaźniki, braki w standardowej bibliotece |
 
 ### Binarka: rozmiar pliku (count-to-1-billion)
+
+![Binary size](bench/size_bench.png)
 
 | Język | Rozmiar |
 |-------|---------|
