@@ -210,7 +210,7 @@ clean --help                      # pomoc
 Testy na x86-64 (Intel i7, GCC 14, PHP 8.4, Ruby 3.3, Python 3.13).  
 Clean (rej.) — rejestrowa optymalizacja zmiennych (r13-r15) + binop w rejestrach.  
 Clean (bez rej.) — wariant bez optymalizacji rejestrowej (wszystko na stosie).  
-Wykresy z odwróconą osią Y (0 u góry, sekundy w dół) — **góra = lepiej**.
+Wykresy pokazują krotność wydajności względem C (-O0) — **wyższy słupek = lepiej**.
 
 ### Count-to-1-billion (pusta pętla, 10⁹ iteracji)
 
