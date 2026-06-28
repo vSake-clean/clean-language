@@ -391,7 +391,7 @@ static int parse_obj(const char *path) {
                     char *mnl = mp;
                     while (*mnl && *mnl != '\n' && *mnl != '\r') mnl++;
                     *mnl = 0;
-                    if (nm >= cm) { cm *= 2; mtls = (Mtl *)realloc(mtls, cm * sizeof(Mtl)); }
+                    if (nm >= cm) { cm *= 2; Mtl *newmtls = (Mtl *)realloc(mtls, cm * sizeof(Mtl)); if (newmtls) mtls = newmtls; }
                     strncpy(mtls[nm].name, mp, 255);
                     mtls[nm].r = 0.7f; mtls[nm].g = 0.7f; mtls[nm].b = 0.7f;
                     cur_mtl = nm++;

@@ -394,7 +394,7 @@ static const char *clgui_embedded =
   "                    char *mnl = mp;\n"
   "                    while (*mnl && *mnl != '\\n' && *mnl != '\\r') mnl++;\n"
   "                    *mnl = 0;\n"
-  "                    if (nm >= cm) { cm *= 2; mtls = (Mtl *)realloc(mtls, cm * sizeof(Mtl)); }\n"
+  "                    if (nm >= cm) { cm *= 2; Mtl *newmtls = (Mtl *)realloc(mtls, cm * sizeof(Mtl)); if (newmtls) mtls = newmtls; }\n"
   "                    strncpy(mtls[nm].name, mp, 255);\n"
   "                    mtls[nm].r = 0.7f; mtls[nm].g = 0.7f; mtls[nm].b = 0.7f;\n"
   "                    cur_mtl = nm++;\n"

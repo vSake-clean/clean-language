@@ -108,8 +108,10 @@ LirFn *lir_lower(MirFn *mir) {
                     LI(LIR_XOR, mi->dst, mi->src2, 0, 0);
                 } else if (op == 16) {
                     LI(LIR_MOV, mi->dst, mi->src1, 0, 0);
+                    LI(LIR_SHL, mi->dst, mi->src2, 0, 0);
                 } else if (op == 17) {
                     LI(LIR_MOV, mi->dst, mi->src1, 0, 0);
+                    LI(mi->is_unsigned ? LIR_SHR : LIR_SAR, mi->dst, mi->src2, 0, 0);
                 } else if (op == 18) {
                     LI(LIR_MOV, mi->dst, mi->src1, 0, 0);
                 } else {

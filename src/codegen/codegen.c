@@ -117,6 +117,7 @@ typedef struct {
     const char *strs[MAX_STRS];
     int str_cnt;
     int loop_start[64];
+    int loop_continue[64];
     int loop_end[64];
     int loop_sp;
     CStructDef structs[MAX_CG_STRUCTS];
@@ -485,7 +486,7 @@ static void emit_calc_expr(Codegen *c) {
     emit(c, "  xor rax, rax\n  mov rdi, 0\n");
     emit(c, "  lea rsi, [rbp-4096]\n  add rsi, rbx\n  mov rdx, 1\n  syscall\n");
     emit(c, "  cmp rax, 1\n  jne .L_ce_eof_%d\n", L);
-    emit(c, "  mov al, byte ptr [rbp-4096+rbx]\n");
+    emit(c, "  mov al, byte ptr [rbp + rbx - 4096]\n");
     emit(c, "  cmp al, 10\n  je .L_ce_rdone_%d\n", L);
     emit(c, "  inc rbx\n  cmp rbx, 4095\n  jb .L_ce_read_%d\n", L);
     emit(c, ".L_ce_eof_%d:\n", L);
@@ -988,6 +989,7 @@ static void gen_expr(Codegen *c, Node *n) {
         Node *args[16];
         int i = 0;
         for (Node *a = n->struct_literal.args; a; a = a->next) args[i++] = a;
+        emit(c, "  push rbx\n");
         for (int j = i-1; j >= 0; j--) { gen_expr(c, args[j]); emit(c, "  push rax\n"); }
         emit(c, "  mov rdi, %d\n  call malloc\n", s->total_size > 0 ? s->total_size : 8);
         emit(c, "  mov rbx, rax\n");
@@ -996,6 +998,7 @@ static void gen_expr(Codegen *c, Node *n) {
             emit(c, "  mov qword ptr [rbx + %d], rax\n", s->offsets[j]);
         }
         emit(c, "  mov rax, rbx\n");
+        emit(c, "  pop rbx\n");
         break;
     }
     case NODE_ENUM_LITERAL: {
@@ -1018,6 +1021,7 @@ static void gen_expr(Codegen *c, Node *n) {
         }
         int alloc_size = payload_total + 8;
         if (alloc_size < 8) alloc_size = 8;
+        emit(c, "  push rbx\n");
         emit(c, "  mov rdi, %d\n  call malloc\n", alloc_size);
         emit(c, "  mov rbx, rax\n");
         /* store tag */
@@ -1036,6 +1040,7 @@ static void gen_expr(Codegen *c, Node *n) {
             pidx++;
         }
         emit(c, "  mov rax, rbx\n");
+        emit(c, "  pop rbx\n");
         break;
     }
     case NODE_INDEX: {
@@ -1102,6 +1107,24 @@ static void gen_expr(Codegen *c, Node *n) {
             int off = sym_find(&c->sym, n->borrow.operand->ident);
             if (off >= 0) emit(c, "  lea rax, [rbp - %d]\n", off);
             else emit(c, "  xor rax, rax\n");
+        } else if (n->borrow.operand->type == NODE_INDEX &&
+                   n->borrow.operand->index_expr.index->type == NODE_IDENT) {
+            /* &obj.field — compute field address instead of loading */
+            gen_expr(c, n->borrow.operand->index_expr.obj);
+            const char *field = n->borrow.operand->index_expr.index->ident;
+            int found = 0;
+            for (int si = 0; si < c->struct_count && !found; si++) {
+                for (int j = 0; j < c->structs[si].field_count; j++) {
+                    if (strcmp(c->structs[si].fields[j], field) == 0) {
+                        emit(c, "  lea rax, [rax + %d]\n", c->structs[si].offsets[j]);
+                        found = 1;
+                        break;
+                    }
+                }
+            }
+            if (!found) {
+                gen_expr(c, n->borrow.operand);
+            }
         } else {
             gen_expr(c, n->borrow.operand);
         }
@@ -1178,8 +1201,9 @@ static void gen_stmt(Codegen *c, Node *n) {
         if (n->assign.rhs && (n->assign.rhs->type == NODE_STRUCT_LITERAL ||
                                n->assign.rhs->type == NODE_ENUM_LITERAL))
             c->sym.is_heap[idx] = 1;
-        else
+        else if (n->assign.rhs && n->assign.rhs->type != NODE_IDENT)
             c->sym.is_heap[idx] = 0;
+        /* for NODE_IDENT, preserve old is_heap value (conservative) */
         break;
     }
     case NODE_IF: {
@@ -1194,15 +1218,56 @@ static void gen_stmt(Codegen *c, Node *n) {
         break;
     }
     case NODE_WHILE: {
-        int lbl_start = new_label(c), lbl_end = new_label(c);
+        int lbl_start = new_label(c), lbl_cont = new_label(c), lbl_end = new_label(c);
         if (c->loop_sp >= 64) { diag_add(c->diag, 0, SEV_ERROR, 0, 0, 0, "too many nested loops"); exit(1); }
         c->loop_start[c->loop_sp] = lbl_start;
+        c->loop_continue[c->loop_sp] = lbl_cont;
         c->loop_end[c->loop_sp] = lbl_end;
         c->loop_sp++;
         emit(c, ".L_while_%d:\n", lbl_start);
         gen_expr(c, n->while_stmt.cond);
         emit(c, "  test rax, rax\n  je .L_endwhile_%d\n", lbl_end);
         gen_stmt(c, n->while_stmt.body);
+        emit(c, ".L_continue_%d:\n", lbl_cont);
+        emit(c, "  jmp .L_while_%d\n", lbl_start);
+        emit(c, ".L_endwhile_%d:\n", lbl_end);
+        c->loop_sp--;
+        break;
+    }
+    case NODE_FOR: {
+        int lbl_start = new_label(c), lbl_cont = new_label(c), lbl_end = new_label(c);
+        if (c->loop_sp >= 64) { diag_add(c->diag, 0, SEV_ERROR, 0, 0, 0, "too many nested loops"); exit(1); }
+        c->loop_start[c->loop_sp] = lbl_start;
+        c->loop_continue[c->loop_sp] = lbl_cont;
+        c->loop_end[c->loop_sp] = lbl_end;
+        c->loop_sp++;
+        /* initialize var = iter */
+        gen_expr(c, n->for_stmt.iter);
+        int idx = sym_find_idx(&c->sym, n->for_stmt.var);
+        int off = (idx >= 0) ? c->sym.offsets[idx] : 0;
+        int vreg = (idx >= 0) ? c->sym.regs[idx] : -1;
+        if (vreg >= 0)
+            emit(c, "  mov %s, rax\n", var_reg_names[vreg]);
+        emit(c, "  mov qword ptr [rbp - %d], rax\n", off);
+        emit(c, ".L_while_%d:\n", lbl_start);
+        /* condition: var < iter_end */
+        gen_expr(c, n->for_stmt.iter_end);
+        emit(c, "  push rax\n");
+        if (vreg >= 0)
+            emit(c, "  push %s\n", var_reg_names[vreg]);
+        else
+            emit(c, "  push qword ptr [rbp - %d]\n", off);
+        emit(c, "  pop rax\n  pop rcx\n");
+        emit(c, "  cmp rax, rcx\n");
+        emit(c, "  jge .L_endwhile_%d\n", lbl_end);
+        /* body */
+        gen_stmt(c, n->for_stmt.body);
+        /* increment */
+        emit(c, ".L_continue_%d:\n", lbl_cont);
+        if (vreg >= 0)
+            emit(c, "  add %s, 1\n", var_reg_names[vreg]);
+        else
+            emit(c, "  add qword ptr [rbp - %d], 1\n", off);
         emit(c, "  jmp .L_while_%d\n", lbl_start);
         emit(c, ".L_endwhile_%d:\n", lbl_end);
         c->loop_sp--;
@@ -1219,7 +1284,7 @@ static void gen_stmt(Codegen *c, Node *n) {
         break;
     case NODE_CONTINUE:
         if (c->loop_sp > 0)
-            emit(c, "  jmp .L_while_%d\n", c->loop_start[c->loop_sp-1]);
+            emit(c, "  jmp .L_continue_%d\n", c->loop_continue[c->loop_sp-1]);
         break;
     case NODE_EXPR_STMT:
         gen_expr(c, n->expr_stmt.expr);
@@ -1252,11 +1317,21 @@ static void gen_stmt(Codegen *c, Node *n) {
                 else
                     emit(c, "  mov rax, qword ptr [rax + 8]\n");
                 if (arm->match_arm.payload->type == NODE_IDENT) {
-                    int poff = sym_add(&c->sym, arm->match_arm.payload->ident);
+                    /* use pre-counted slot (count_locals already called sym_add) */
                     int pidx = sym_find_idx(&c->sym, arm->match_arm.payload->ident);
-                    if (pidx >= 0 && c->sym.regs[pidx] >= 0)
+                    if (pidx < 0) {
+                        sym_add(&c->sym, arm->match_arm.payload->ident);
+                        pidx = sym_find_idx(&c->sym, arm->match_arm.payload->ident);
+                    }
+                    int poff = c->sym.offsets[pidx];
+                    if (c->sym.regs[pidx] >= 0)
                         emit(c, "  mov %s, rax\n", var_reg_names[c->sym.regs[pidx]]);
                     emit(c, "  mov qword ptr [rbp - %d], rax\n", poff);
+                }
+                /* check guard */
+                if (arm->match_arm.guard) {
+                    gen_expr(c, arm->match_arm.guard);
+                    emit(c, "  test rax, rax\n  je .L_match_arm_%d\n", next_arm);
                 }
                 emit(c, "  add rsp, 8\n");
                 gen_stmt(c, arm->match_arm.body);
@@ -1269,6 +1344,11 @@ static void gen_stmt(Codegen *c, Node *n) {
                 emit(c, "  mov rax, qword ptr [rax]\n");  /* tag */
                 emit(c, "  cmp rax, %d\n", tag);
                 emit(c, "  jne .L_match_arm_%d\n", next_arm);
+                /* check guard */
+                if (arm->match_arm.guard) {
+                    gen_expr(c, arm->match_arm.guard);
+                    emit(c, "  test rax, rax\n  je .L_match_arm_%d\n", next_arm);
+                }
                 emit(c, "  add rsp, 8\n");
                 gen_stmt(c, arm->match_arm.body);
                 emit(c, "  jmp .L_match_end_%d\n", end_label);
@@ -1311,6 +1391,9 @@ static void count_locals(SymTab *s, Node *n) {
         count_locals(s, n->while_stmt.cond);
         count_locals(s, n->while_stmt.body);
         break;
+    case NODE_FOR:
+        count_locals(s, n->for_stmt.body);
+        break;
     case NODE_ASSIGN:
         if (n->assign.rhs) count_locals(s, n->assign.rhs);
         break;
@@ -1324,7 +1407,7 @@ static void count_locals(SymTab *s, Node *n) {
     case NODE_CONTINUE:
         break;
     case NODE_COMPREHENSION:
-        if (n->comp.var) { sym_add(s, n->comp.var); s->stack_size += 8; }
+        if (n->comp.var) { sym_add(s, n->comp.var); }
         count_locals(s, n->comp.map);
         count_locals(s, n->comp.iter);
         if (n->comp.iter_end) count_locals(s, n->comp.iter_end);
@@ -1337,7 +1420,8 @@ static void count_locals(SymTab *s, Node *n) {
         for (Node *a = n->struct_literal.args; a; a = a->next) count_locals(s, a);
         break;
     case NODE_ENUM_LITERAL:
-        if (n->enum_literal.payload) count_locals(s, n->enum_literal.payload);
+        for (Node *p = n->enum_literal.payload; p; p = p->next)
+            count_locals(s, p);
         break;
     case NODE_INDEX:
     case NODE_NULLSAFE:
@@ -1359,12 +1443,17 @@ static void count_locals(SymTab *s, Node *n) {
     case NODE_MATCH:
         count_locals(s, n->match.expr);
         for (Node *arm = n->match.arms; arm; arm = arm->next) {
+            /* pre-allocate payload variable slot */
+            if (arm->match_arm.payload && arm->match_arm.payload->type == NODE_IDENT)
+                sym_add(s, arm->match_arm.payload->ident);
             if (arm->match_arm.payload) count_locals(s, arm->match_arm.payload);
             if (arm->match_arm.guard) count_locals(s, arm->match_arm.guard);
             count_locals(s, arm->match_arm.body);
         }
         break;
     case NODE_MATCH_ARM:
+        if (n->match_arm.payload && n->match_arm.payload->type == NODE_IDENT)
+            sym_add(s, n->match_arm.payload->ident);
         if (n->match_arm.payload) count_locals(s, n->match_arm.payload);
         if (n->match_arm.guard) count_locals(s, n->match_arm.guard);
         count_locals(s, n->match_arm.body);
@@ -1443,6 +1532,7 @@ static void emit_fn_return(Codegen *c) {
 
 static void gen_fn(Codegen *c, Node *n) {
     sym_init(&c->sym);
+    c->loop_sp = 0;
     const char *name = n->fn.name;
     if (c->gui_mode && strcmp(name, "main") == 0) name = "clean_main";
     /* Add params to determine register usage before prologue */

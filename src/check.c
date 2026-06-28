@@ -240,7 +240,8 @@ static void check_expr(CheckCtx *c, Node *n) {
         check_expr(c, n->borrow.operand);
         break;
     case NODE_ENUM_LITERAL:
-        if (n->enum_literal.payload) check_expr(c, n->enum_literal.payload);
+        for (Node *p = n->enum_literal.payload; p; p = p->next)
+            check_expr(c, p);
         break;
     default: break;
     }
@@ -386,10 +387,14 @@ static void check_stmt(CheckCtx *c, Node *n) {
     case NODE_BREAK:
     case NODE_CONTINUE:
         break;
+    case NODE_FOR:
+        check_stmt(c, n->for_stmt.body);
+        break;
     case NODE_MATCH:
         check_expr(c, n->match.expr);
         for (Node *arm = n->match.arms; arm; arm = arm->next) {
-            if (arm->match_arm.payload) check_expr(c, arm->match_arm.payload);
+            for (Node *p = arm->match_arm.payload; p; p = p->next)
+                check_expr(c, p);
             if (arm->match_arm.guard) check_expr(c, arm->match_arm.guard);
             check_stmt(c, arm->match_arm.body);
         }

@@ -75,6 +75,7 @@ static Token consume(Parser *p, TokenType type, const char *what) {
     if (t.type != type) {
         diag_add(p->diag, 2000, SEV_ERROR, t.line, t.col, t.len, what);
         p->error_count++;
+        lexer_free_token(&t);
         memset(&t, 0, sizeof(t));
     }
     return t;
@@ -536,17 +537,12 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
                     }
                 }
                 else if (peek(p).type == TOK_INT || peek(p).type == TOK_CHAR || peek(p).type == TOK_TRUE || peek(p).type == TOK_FALSE) {
-                    Token lt = next(p);
+                    next(p);
                     arm->match_arm.variant = strdup("_literal");
-                    Node *lit_body = node_new(NODE_EXPR_STMT);
-                    if (lt.type == TOK_INT || lt.type == TOK_CHAR) {
-                        lit_body->expr_stmt.expr = node_new(NODE_INT);
-                        lit_body->expr_stmt.expr->int_val = lt.int_val;
-                    } else {
-                        lit_body->expr_stmt.expr = node_new(NODE_BOOL);
-                        lit_body->expr_stmt.expr->bool_val = (lt.type == TOK_TRUE) ? 1 : 0;
-                    }
-                    arm->match_arm.body = lit_body;
+                }
+                /* if guard */
+                if (match(p, TOK_IF)) {
+                    arm->match_arm.guard = parse_expr(p);
                 }
                 /* consume '=>', '->', or ':' after pattern */
                 if (match(p, TOK_EQ)) {
@@ -557,10 +553,6 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
                     Token pk = peek(p);
                     diag_add(p->diag, 2000, SEV_ERROR, pk.line, pk.col, pk.len, "expected ':' after match arm pattern");
                     p->error_count++;
-                }
-                /* if guard */
-                if (match(p, TOK_IF)) {
-                    arm->match_arm.guard = parse_expr(p);
                 }
                 /* body */
                 if (peek(p).type == TOK_NEWLINE) {
@@ -638,33 +630,19 @@ static Node *parse_stmt(Parser *p, int consume_nl) {
         require_colon(p);
         if (peek(p).type == TOK_NEWLINE) next(p);
         Node *body = parse_block(p);
-        Node *inc_lhs = node_new(NODE_IDENT); inc_lhs->ident = strdup(var_name);
-        Node *inc_rhs_l = node_new(NODE_IDENT); inc_rhs_l->ident = strdup(var_name);
-        Node *inc_rhs_r = node_new(NODE_INT); inc_rhs_r->int_val = 1;
-        Node *inc_bin = node_new(NODE_BINARY);
-        inc_bin->binary.left = inc_rhs_l; inc_bin->binary.right = inc_rhs_r; inc_bin->binary.op = 0;
-        Node *inc = node_new(NODE_ASSIGN);
-        inc->assign.lhs = inc_lhs; inc->assign.rhs = inc_bin;
-        Node *while_body = node_new(NODE_BLOCK);
-        if (body->block.stmts) {
-            Node *tail = body->block.stmts;
-            while (tail->next) tail = tail->next;
-            tail->next = inc;
-            while_body->block.stmts = body->block.stmts;
-        } else {
-            while_body->block.stmts = inc;
-        }
-        Node *cond_l = node_new(NODE_IDENT); cond_l->ident = strdup(var_name);
-        Node *cond = node_new(NODE_BINARY);
-        cond->binary.left = cond_l; cond->binary.right = end; cond->binary.op = 7;
-        Node *while_node = node_new(NODE_WHILE);
-        while_node->while_stmt.cond = cond; while_node->while_stmt.body = while_body;
+        Node *for_node = node_new(NODE_FOR);
+        for_node->for_stmt.var = var_name;
+        for_node->for_stmt.iter = start;
+        for_node->for_stmt.iter_end = end;
+        for_node->for_stmt.body = body;
         Node *let = node_new(NODE_LET);
-        let->let.name = var_name; let->let.init = start; let->let.mut = 1;
+        let->let.name = strdup(var_name);
+        let->let.init = NULL; /* init handled by NODE_FOR codegen */
+        let->let.mut = 1;
         let->src_line = var_token.line; let->src_col = var_token.col;
         Node *block = node_new(NODE_BLOCK);
         block->block.stmts = let;
-        let->next = while_node;
+        let->next = for_node;
         if (consume_nl) while (peek(p).type == TOK_NEWLINE) next(p);
         return block;
     }

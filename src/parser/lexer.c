@@ -294,11 +294,14 @@ Token lexer_next(Lexer *l) {
         l->pos++; l->col++;
         size_t cap = 4096;
         char *buf = malloc(cap);
+        if (!buf) { Token t = token_new(l, TOK_STR); t.text = strdup(""); t.len = 2; return t; }
         size_t cnt = 0;
         while (s[l->pos] && s[l->pos] != '"') {
             if (cnt >= cap - 1) {
                 cap *= 2;
-                buf = realloc(buf, cap);
+                char *newbuf = realloc(buf, cap);
+                if (!newbuf) { free(buf); Token t = token_new(l, TOK_STR); t.text = strdup(""); t.len = 2; return t; }
+                buf = newbuf;
             }
             if (s[l->pos] == '\\') {
                 l->pos++; l->col++;
@@ -363,7 +366,7 @@ Token lexer_next(Lexer *l) {
         buf[cnt] = '\0';
         Token t = token_new(l, TOK_STR);
         t.text = buf;
-        t.len = (l->pos - start) + 1;
+        t.len = l->pos - start;
         if (s[l->pos] == '"') { l->pos++; l->col++; }
         return t;
     }

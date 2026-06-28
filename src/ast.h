@@ -38,6 +38,7 @@ typedef enum {
     NODE_TRAIT_DECL,
     NODE_IMPL_BLOCK,
     NODE_NULLSAFE,
+    NODE_FOR,
 } NodeType;
 
 typedef struct Node {
@@ -75,6 +76,7 @@ typedef struct Node {
         struct { struct Node *operand; int mut; } borrow;
         struct { char *name; struct Node *type_params; struct Node *methods; } trait_decl;
         struct { char *name; struct Node *for_type; struct Node *methods; } impl_block;
+        struct { char *var; struct Node *iter; struct Node *iter_end; struct Node *body; } for_stmt;
     };
 } Node;
 

@@ -185,8 +185,8 @@ static void bc_expr_full(BorrowckCtx *bc, Node *n) {
             bc_expr_full(bc, a);
         break;
     case NODE_ENUM_LITERAL:
-        if (n->enum_literal.payload)
-            bc_expr_full(bc, n->enum_literal.payload);
+        for (Node *p = n->enum_literal.payload; p; p = p->next)
+            bc_expr_full(bc, p);
         break;
     case NODE_COMPREHENSION:
         bc_expr_full(bc, n->comp.map);
@@ -246,11 +246,15 @@ static void bc_stmt(BorrowckCtx *bc, Node *n) {
     case NODE_BREAK:
     case NODE_CONTINUE:
         break;
+    case NODE_FOR:
+        bc_stmt(bc, n->for_stmt.body);
+        break;
     case NODE_MATCH:
         bc_expr_full(bc, n->match.expr);
         for (Node *arm = n->match.arms; arm; arm = arm->next) {
             bc_enter_scope(bc);
-            if (arm->match_arm.payload) bc_expr_full(bc, arm->match_arm.payload);
+            for (Node *p = arm->match_arm.payload; p; p = p->next)
+                bc_expr_full(bc, p);
             if (arm->match_arm.guard) bc_expr_full(bc, arm->match_arm.guard);
             bc_stmt(bc, arm->match_arm.body);
             bc_leave_scope(bc);

@@ -123,6 +123,12 @@ void node_free(Node *n) {
         node_free(n->impl_block.for_type);
         node_free(n->impl_block.methods);
         break;
+    case NODE_FOR:
+        free(n->for_stmt.var);
+        node_free(n->for_stmt.iter);
+        node_free(n->for_stmt.iter_end);
+        node_free(n->for_stmt.body);
+        break;
     case NODE_BREAK:
     case NODE_CONTINUE:
     case NODE_PROGRAM:

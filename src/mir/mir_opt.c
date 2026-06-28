@@ -91,10 +91,18 @@ static Node *ast_fold(Node *n) {
         n->while_stmt.cond = ast_fold(n->while_stmt.cond);
         n->while_stmt.body = ast_fold(n->while_stmt.body);
         return n;
-    case NODE_BLOCK:
-        for (Node *s = n->block.stmts; s; s = s->next)
-            s = ast_fold(s);
+    case NODE_FOR:
+        n->for_stmt.body = ast_fold(n->for_stmt.body);
         return n;
+    case NODE_BLOCK: {
+        Node *s = n->block.stmts;
+        while (s) {
+            Node *next = s->next;
+            ast_fold(s);
+            s = next;
+        }
+        return n;
+    }
     case NODE_LET:
         if (n->let.init) n->let.init = ast_fold(n->let.init);
         if (n->let.type) n->let.type = ast_fold(n->let.type);
@@ -112,7 +120,7 @@ static Node *ast_fold(Node *n) {
     case NODE_CALL:
         if (n->call.callee) n->call.callee = ast_fold(n->call.callee);
         for (Node *a = n->call.args; a; a = a->next)
-            a = ast_fold(a);
+            ast_fold(a); /* fold in place */
         return n;
     case NODE_MATCH:
         if (n->match.expr) n->match.expr = ast_fold(n->match.expr);
@@ -168,6 +176,9 @@ static void count_uses(Node *n, const char *target, int *count) {
         count_uses(n->while_stmt.cond, target, count);
         count_uses(n->while_stmt.body, target, count);
         break;
+    case NODE_FOR:
+        count_uses(n->for_stmt.body, target, count);
+        break;
     case NODE_RETURN:
         if (n->ret.val) count_uses(n->ret.val, target, count);
         break;
@@ -197,6 +208,25 @@ static void count_uses(Node *n, const char *target, int *count) {
         count_uses(n->index_expr.obj, target, count);
         count_uses(n->index_expr.index, target, count);
         break;
+    case NODE_DEREF:
+    case NODE_BORROW:
+    case NODE_MUT_BORROW:
+        count_uses(n->borrow.operand, target, count);
+        break;
+    case NODE_COMPREHENSION:
+        count_uses(n->comp.map, target, count);
+        count_uses(n->comp.iter, target, count);
+        count_uses(n->comp.iter_end, target, count);
+        if (n->comp.filter) count_uses(n->comp.filter, target, count);
+        break;
+    case NODE_STRUCT_LITERAL:
+        for (Node *a = n->struct_literal.args; a; a = a->next)
+            count_uses(a, target, count);
+        break;
+    case NODE_ENUM_LITERAL:
+        for (Node *p = n->enum_literal.payload; p; p = p->next)
+            count_uses(p, target, count);
+        break;
     default:
         break;
     }
@@ -213,6 +243,7 @@ static int stmt_has_side_effects(Node *n) {
     case NODE_RETURN: return 1;
     case NODE_IF: return 1;
     case NODE_WHILE: return 1;
+    case NODE_FOR: return 1;
     case NODE_BREAK:
     case NODE_CONTINUE: return 1;
     default: return 0;
@@ -258,8 +289,14 @@ static Node *ast_dce_block(Node *n, Node *next_sibling) {
                     continue;
                 }
             }
-            s = ast_dce_block(s, next);
-            prev = s;
+            Node *folded = ast_dce_block(s, next);
+            if (!folded) {
+                if (prev) prev->next = next;
+                else n->block.stmts = next;
+                s = next;
+                continue;
+            }
+            prev = folded;
             s = next;
         }
         return n;
@@ -271,11 +308,21 @@ static Node *ast_dce_block(Node *n, Node *next_sibling) {
         /* if then-block is empty and no else, simplify */
         if (n->if_stmt.then && n->if_stmt.then->type == NODE_BLOCK &&
             !n->if_stmt.then->block.stmts && !n->if_stmt.otherwise) {
+            n->if_stmt.cond = NULL;
+            n->if_stmt.then = NULL;
+            node_free(n);
             return NULL; /* dead if */
         }
         return n;
     case NODE_WHILE:
         n->while_stmt.body = ast_dce_block(n->while_stmt.body, NULL);
+        return n;
+    case NODE_FOR:
+        n->for_stmt.body = ast_dce_block(n->for_stmt.body, NULL);
+        return n;
+    case NODE_MATCH:
+        for (Node *arm = n->match.arms; arm; arm = arm->next)
+            arm->match_arm.body = ast_dce_block(arm->match_arm.body, NULL);
         return n;
     default:
         return n;

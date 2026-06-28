@@ -481,6 +481,57 @@ static void mir_stmt(MirFn *fn, Node *n) {
         loop_after_block = save_after;
         break;
     }
+    case NODE_FOR: {
+        /* Desugar: for var in iter..iter_end -> let mut var = iter; while var < iter_end { body; var += 1 }
+           For now, just emit as while loop with var < iter_end condition and var += 1 at end of body */
+        int bb_cond = mir_new_block(fn);
+        int bb_body = mir_new_block(fn);
+        int bb_inc = mir_new_block(fn);
+        int bb_after = mir_new_block(fn);
+
+        /* continue jumps to increment, break jumps to after */
+        int save_cond = loop_cond_block;
+        int save_after = loop_after_block;
+        loop_cond_block = bb_inc; /* continue goes to increment (not condition, to match non-MIR codegen) */
+        loop_after_block = bb_after;
+
+        mir_set_term(fn, current_block, MIR_JUMP, -1, bb_cond, -1, -1);
+
+        current_block = bb_cond;
+        /* condition: var < iter_end */
+        /* We need to build a comparison expr. Since MIR doesn't have temp variables,
+           we'll push a binary comparison manually */
+        Node *cond = node_new(NODE_BINARY);
+        cond->binary.left = node_new(NODE_IDENT); cond->binary.left->ident = strdup(n->for_stmt.var);
+        cond->binary.right = n->for_stmt.iter_end;
+        cond->binary.op = 7;
+        int cv = mir_expr(fn, cond);
+        cond->binary.left->ident = NULL; node_free(cond->binary.left); cond->binary.left = NULL;
+        cond->binary.right = NULL; node_free(cond);
+        mir_set_term(fn, current_block, MIR_BRANCH, cv, -1, bb_body, bb_after);
+
+        current_block = bb_body;
+        mir_stmt(fn, n->for_stmt.body);
+        mir_set_term(fn, current_block, MIR_JUMP, -1, bb_inc, -1, -1);
+
+        current_block = bb_inc;
+        /* increment: var = var + 1 */
+        Node *inc_lhs = node_new(NODE_IDENT); inc_lhs->ident = strdup(n->for_stmt.var);
+        Node *inc_rhs = node_new(NODE_BINARY);
+        inc_rhs->binary.left = node_new(NODE_IDENT); inc_rhs->binary.left->ident = strdup(n->for_stmt.var);
+        inc_rhs->binary.right = node_new(NODE_INT); inc_rhs->binary.right->int_val = 1;
+        inc_rhs->binary.op = 0;
+        Node *assign = node_new(NODE_ASSIGN);
+        assign->assign.lhs = inc_lhs; assign->assign.rhs = inc_rhs;
+        mir_stmt(fn, assign);
+        assign->assign.lhs = NULL; assign->assign.rhs = NULL; node_free(assign);
+        mir_set_term(fn, current_block, MIR_JUMP, -1, bb_cond, -1, -1);
+
+        current_block = bb_after;
+        loop_cond_block = save_cond;
+        loop_after_block = save_after;
+        break;
+    }
     case NODE_RETURN: {
         if (n->ret.val) {
             int v = mir_expr(fn, n->ret.val);
