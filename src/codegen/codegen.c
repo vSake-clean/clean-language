@@ -557,7 +557,7 @@ static void emit_calc_expr(Codegen *c) {
 static void emit_string_clone(Codegen *c) {
     emit(c, "\n# string_clone(rdi=src, rsi=len) -> rax=ptr (allocates + copies)\n");
     emit(c, ".globl string_clone\n.type string_clone, @function\nstring_clone:\n");
-    emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  sub rsp, 16\n");
+    emit(c, "  push rbp\n  mov rbp, rsp\n  push rbx\n  sub rsp, 32\n");
     emit(c, "  mov qword ptr [rbp-24], rdi\n");  /* src */
     emit(c, "  mov qword ptr [rbp-32], rsi\n");  /* len */
     /* allocate: len + 1 bytes via malloc */
@@ -572,7 +572,7 @@ static void emit_string_clone(Codegen *c) {
     emit(c, "  inc rcx\n");  /* include null terminator */
     emit(c, "  rep movsb\n");
     emit(c, "  mov rax, rbx\n");
-    emit(c, "  add rsp, 16\n  pop rbx\n  pop rbp\n  ret\n");
+    emit(c, "  add rsp, 32\n  pop rbx\n  pop rbp\n  ret\n");
 }
 
 static void emit_string_concat(Codegen *c) {

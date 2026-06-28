@@ -14,6 +14,7 @@ static void print_usage(void) {
     printf("Clean v0.2.0 — native compiler for Clean language\n\n");
     printf("Usage:\n");
     printf("  cl run <file.cl> [args...]               compile and run\n");
+    printf("  cl start <code...>                        compile and run inline code\n");
     printf("  cl build <file.cl> <output>               compile to native binary\n");
     printf("  cl --help                                 this help\n");
 }
@@ -186,6 +187,32 @@ int main(int argc, char **argv) {
             return 1;
         }
         return compile(argv[2], argv[3], 0, 0, NULL);
+    }
+
+    if (!strcmp(cmd, "start")) {
+        if (argc < 3) {
+            fprintf(stderr, "error: cl start <code...>\n");
+            return 1;
+        }
+        size_t total = 1;
+        for (int i = 2; i < argc; i++) total += strlen(argv[i]) + 1;
+        char *code = malloc(total);
+        if (!code) { fprintf(stderr, "error: out of memory\n"); return 1; }
+        code[0] = '\0';
+        for (int i = 2; i < argc; i++) {
+            if (i > 2) strcat(code, " ");
+            strcat(code, argv[i]);
+        }
+        char tmpname[] = "/tmp/clean_start_XXXXXX";
+        int fd = mkstemp(tmpname);
+        if (fd < 0) { free(code); fprintf(stderr, "error: cannot create temp file\n"); return 1; }
+        write(fd, code, strlen(code));
+        write(fd, "\n", 1);
+        close(fd);
+        free(code);
+        int result = compile(tmpname, NULL, 1, 0, NULL);
+        unlink(tmpname);
+        return result;
     }
 
     fprintf(stderr, "error: '%s'. Use --help.\n", cmd);
